@@ -31,6 +31,9 @@ class MonitorConfig:
     """监控配置类 - 集中管理所有配置参数"""
     rpc_url: str = ActiveConfig["rpc_url"]
     scan_url: str = ActiveConfig["scan_url"]
+    token_name: str = ActiveConfig["token_name"]
+    usdt_contract: str = ActiveConfig["usdt_contract"]
+    usdc_contract: str = ActiveConfig["usdc_contract"]
     required_confirmations: int = 3
     confirmation_check_interval: int = 10  # 秒
     cache_ttl: float = 1.5  # 缓存时间
@@ -38,10 +41,9 @@ class MonitorConfig:
     
     # 交易阈值配置
     thresholds: Dict[str, float] = field(default_factory=lambda: {
-        'BNB': 1.0,
+        MonitorConfig.token_name: 1.0,
         'USDT': 10000.0,
         'USDC': 10000.0,
-        'BUSD': 10000.0
     })
     
     # API限制配置
@@ -158,7 +160,7 @@ class TransactionProcessor:
         """处理单个交易，检测大额转账"""
         block_number = tx.get('blockNumber')
         
-        # 检测BNB转账
+        # 检测 MonitorConfig.token_name 转账
         bnb_info = self._process_bnb_transaction(tx, block_number)
         if bnb_info:
             return bnb_info
@@ -171,29 +173,28 @@ class TransactionProcessor:
         return None
     
     def _process_bnb_transaction(self, tx: Dict[str, Any], block_number: int) -> Optional[TransactionInfo]:
-        """处理BNB交易"""
+        """处理 native token 交易"""
         wei = tx['value']
         bnb_amount = self.rpc_manager.w3.from_wei(wei, 'ether')
         
-        if bnb_amount >= self.config.thresholds['BNB']:
+        if bnb_amount >= self.config.thresholds[MonitorConfig.token_name]:
             gas_cost = self.rpc_manager.w3.from_wei(tx['gasPrice'] * tx['gas'], 'ether')
             tx_hash = self.rpc_manager.w3.to_hex(tx['hash'])
-            
             logger.info(
-                f"💰 大额BNB: {tx['from']} => {tx['to']} | "
-                f"{TokenParser.format_amount(bnb_amount, 'BNB')} | "
-                f"Gas: {gas_cost:,.5f} BNB | "
+                f"💰 大额 {MonitorConfig.token_name}: {tx['from']} => {tx['to']} | "
+                f"{TokenParser.format_amount(bnb_amount, MonitorConfig.token_name)} | "
+                f"Gas: {gas_cost:,.5f} {MonitorConfig.token_name} | "
                 f"区块: {block_number} | {self.config.scan_url}/tx/{tx_hash}"
             )
             
-            self.transactions_found['BNB'] += 1
+            self.transactions_found[MonitorConfig.token_name] += 1
             self.transactions_found['total'] += 1
             
             return TransactionInfo(
                 hash=tx_hash,
                 tx=tx,
                 value=bnb_amount,
-                tx_type='BNB',
+                tx_type=MonitorConfig.token_name,
                 found_at=time.time(),
                 block_number=block_number
             )
@@ -224,7 +225,7 @@ class TransactionProcessor:
             tx_hash = self.rpc_manager.w3.to_hex(tx['hash'])
             
             # 根据代币类型选择图标
-            icons = {'USDT': '💵', 'USDC': '💸', 'BUSD': '💴'}
+            icons = {'USDT': '💵', 'USDC': '💸'}
             icon = icons.get(token_symbol, '🪙')
             
             logger.info(
@@ -317,10 +318,10 @@ class ConfirmationManager:
     
     def _log_confirmed_transaction(self, tx_info: TransactionInfo, confirmations: int) -> None:
         """记录已确认的交易"""
-        if tx_info.tx_type == 'BNB':
+        if tx_info.tx_type == MonitorConfig.token_name:
             logger.info(
-                f"✅ BNB交易确认: {tx_info.tx['from']} => {tx_info.tx['to']} | "
-                f"{TokenParser.format_amount(tx_info.value, 'BNB')} | "
+                f"✅ {MonitorConfig.token_name}交易确认: {tx_info.tx['from']} => {tx_info.tx['to']} | "
+                f"{TokenParser.format_amount(tx_info.value, MonitorConfig.token_name)} | "
                 f"确认数: {confirmations} | {self.config.scan_url}/tx/{tx_info.hash}"
             )
         else:
@@ -475,7 +476,7 @@ class StatisticsReporter:
         
         # 交易统计
         found = tx_stats['transactions_found']
-        logger.info(f"💰 发现交易: {found['total']} 笔")
+        logger.info(f"💰 发现交易: {found.get('total', 0)} 笔")
         for tx_type, count in found.items():
             if tx_type != 'total' and count > 0:
                 logger.info(f"   {tx_type}: {count} 笔")
@@ -554,10 +555,9 @@ class EVMMonitor:
         logger.info("🚀 开始监控 BNB 链交易（包含代币转账）")
         thresholds = self.config.thresholds
         logger.info(
-            f"📈 监控阈值: BNB≥{thresholds['BNB']}, "
+            f"📈 监控阈值: {MonitorConfig.token_name}≥{thresholds[MonitorConfig.token_name]}, "
             f"USDT≥{thresholds['USDT']:,}, "
             f"USDC≥{thresholds['USDC']:,}, "
-            f"BUSD≥{thresholds['BUSD']:,}"
         )
     
     async def _monitoring_loop(self) -> None:
@@ -637,7 +637,7 @@ class EVMMonitor:
             f"待确认: {pending_count} | "
             f"RPC: {rpc_stats['rpc_calls']} ({rpc_stats['avg_rpc_per_second']:.2f}/s) | "
             f"缓存: {rpc_stats['cache_hits']}/{rpc_stats['cache_hits'] + rpc_stats['cache_misses']} | "
-            f"发现: {tx_stats['transactions_found']['total']}"
+            f"发现: {tx_stats['transactions_found'].get('total', 0)} 笔交易 | "
         )
     
     async def _periodic_maintenance(self) -> None:
