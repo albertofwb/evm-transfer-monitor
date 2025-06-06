@@ -9,11 +9,10 @@
 import time
 from collections import defaultdict
 from typing import Dict, Any, Optional
-
+from utils.token_parser import TokenParser
 from config.monitor_config import MonitorConfig
 from managers.rpc_manager import RPCManager
 from models.data_types import TransactionInfo, TransactionStats
-from utils.token_parser import TokenParser
 from utils.log_utils import get_logger
 
 logger = get_logger(__name__)
@@ -21,11 +20,12 @@ logger = get_logger(__name__)
 
 class TransactionProcessor:
     """交易处理器 - 负责检测和分析交易"""
-    
-    def __init__(self, config: MonitorConfig, rpc_manager: RPCManager):
+
+    def __init__(self, config: MonitorConfig, token_parser: TokenParser, rpc_manager: RPCManager):
         self.config = config
+        self.token_parser = token_parser
         self.rpc_manager = rpc_manager
-        
+
         # 统计信息
         self.transactions_found: Dict[str, int] = defaultdict(int)
         self.token_contracts_detected: int = 0
@@ -107,14 +107,14 @@ class TransactionProcessor:
             return None
         
         # 检查是否为支持的代币合约
-        token_symbol = TokenParser.is_token_contract(tx['to'])
+        token_symbol = self.token_parser.is_token_contract(tx['to'])
         if not token_symbol:
             return None
         
         self.token_contracts_detected += 1
         
         # 解析代币转账
-        token_info = TokenParser.parse_erc20_transfer(tx, token_symbol)
+        token_info = self.token_parser.parse_erc20_transfer(tx, token_symbol)
         if not token_info:
             return None
         

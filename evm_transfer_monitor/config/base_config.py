@@ -1,10 +1,18 @@
 import yaml
+import os
 
 
 def _load_config(config_path="config.yml"):
     """
     内部函数：加载并解析 YAML 配置文件。
     """
+    # 如果是相对路径，则相对于项目根目录
+    if not os.path.isabs(config_path):
+        # 获取当前文件所在目录的上一级目录（项目根目录）
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        project_root = os.path.dirname(current_dir)
+        config_path = os.path.join(project_root, config_path)
+    
     try:
         with open(config_path, 'r', encoding='utf-8') as f:
             config_data = yaml.safe_load(f)

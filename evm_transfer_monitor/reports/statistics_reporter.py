@@ -143,6 +143,7 @@ class StatisticsReporter:
         
         logger.info(
             f"📈 处理 {new_blocks} 新区块 | "
+            f"⌚ 耗时: {time.time() - self.start_time:.2f}s | "
             f"当前: {current_block} | "
             f"待确认: {pending_count} | "
             f"RPC: {rpc_stats.rpc_calls} ({rpc_stats.avg_rpc_per_second:.2f}/s) | "

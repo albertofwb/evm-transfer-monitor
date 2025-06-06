@@ -27,14 +27,15 @@ logger = get_logger(__name__)
 class EVMMonitor:
     """主监控器类 - 协调各个组件"""
     
-    def __init__(self, config: Optional[MonitorConfig] = None):
-        self.config = config or MonitorConfig()
+    def __init__(self, config: MonitorConfig, token_parser: TokenParser):
+        self.config = config    
+        self.token_parser = token_parser
         self.is_running = False
         self.last_block = 0
         
         # 初始化各个组件
         self.rpc_manager = RPCManager(self.config)
-        self.tx_processor = TransactionProcessor(self.config, self.rpc_manager)
+        self.tx_processor = TransactionProcessor(self.config, self.token_parser,self.rpc_manager)
         self.confirmation_manager = ConfirmationManager(self.config, self.rpc_manager)
         self.stats_reporter = StatisticsReporter(self.config)
     
@@ -84,7 +85,7 @@ class EVMMonitor:
     def _log_supported_tokens(self) -> None:
         """记录支持的代币信息"""
         logger.info("🪙 支持的代币合约:")
-        for token, contract in TokenParser.CONTRACTS.items():
+        for token, contract in self.token_parser.contracts.items():
             if contract:
                 logger.info(f"   {token}: {contract}")
     
@@ -95,6 +96,8 @@ class EVMMonitor:
         # 显示当前策略
         strategy_desc = self.config.get_strategy_description()
         logger.info(f"📋 监控策略: {strategy_desc}")
+        logger.info(f"🔗 RPC URL: {self.config.rpc_url}")
+        logger.info(f"⏱️ 区块时间: {self.config.block_time} 秒")
         
         if self.config.is_large_amount_strategy():
             # 大额交易策略 - 显示阈值
@@ -206,7 +209,7 @@ class EVMMonitor:
             return True
             
         except Exception as e:
-            logger.error(f"处理区块 {block_number} 时出错: {e}")
+            logger.error(f"处理区块 {block_number} 时出错: {e}", exc_info=True)
             return False
     
     async def _periodic_maintenance(self) -> None:
@@ -229,7 +232,7 @@ class EVMMonitor:
         """控制循环时间"""
         loop_time = time.time() - loop_start
         
-        if loop_time > 2:
+        if loop_time > self.config.block_time:
             logger.warning(f"⚠️ 处理耗时 {loop_time:.2f}s，可能跟不上出块速度")
             await asyncio.sleep(0.1)
         else:
@@ -402,11 +405,11 @@ def setup_signal_handlers(monitor: EVMMonitor) -> None:
         logger.warning(f"注册信号处理器失败: {e}")
 
 
-async def main():
+async def main(chain_name: str) -> None:
     """主函数"""
     # 创建配置
-    config = MonitorConfig()
-    
+    config = MonitorConfig.from_chain_name(chain_name)
+
     # 创建监控器
     monitor = EVMMonitor(config)
     

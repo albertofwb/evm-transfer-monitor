@@ -112,7 +112,7 @@ class RPCManager:
                 'success': True,
                 'latest_block': latest_block,
                 'gas_price_gwei': float(gas_price_gwei),
-                'network': 'BSC',
+                'network': self.config.chain_name,
                 'rpc_url': self.config.rpc_url
             }
         except Exception as e:

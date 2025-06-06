@@ -1,17 +1,148 @@
-# config.yml
-version: 1.0.0
+# config.yml - EVM 转账监控配置文件
+version: 1.0.2
+
+# 链配置
 chains:
+  # Core DAO 链
   core:
     rpc_url: "https://rpc.coredao.org"
     scan_url: "https://scan.coredao.org"
     token_name: "CORE"
+    chain_id: 1116
+    # 区块确认配置
+    confirmation_blocks: 20  # Core链建议确认数
+    block_time: 3  # 平均出块时间(秒)
+    # 代币合约
     usdt_contract: "0x3c4b1f8d2e5c6b7f9a1d8c3e4b5f6a7b8c9d0e1f"
     usdc_contract: "0x2b2e4f8c5d6a7b8c9d0e1f2a3b4c5d6e7f8g9h0i"
+    # 可选：自定义代币配置
+    custom_tokens:
+      - symbol: "WCORE"
+        contract: "0x40375c92d9faf44d2f9db9bd9ba41a3317a2404f"
+        decimals: 18
+  
+  # BSC 链
   bsc:
     rpc_url: "https://bsc-dataseed.binance.org/"
     scan_url: "https://bscscan.com"
     token_name: "BNB"
+    chain_id: 56
+    confirmation_blocks: 6
+    block_time: 3  # 平均出块时间(秒)
+    # 代币合约
     usdt_contract: "0x55d398326f99059fF775485246999027B3197955"
     usdc_contract: "0x8ac76a51cc950d9822d68b83fE1Ad97B32Cd580d"
+    busd_contract: "0xe9e7CEA3DedcA5984780Bafc599bD69ADd087D56"
+    custom_tokens:
+      - symbol: "CAKE"
+        contract: "0x0e09fabb73bd3ade0a17ecc321fd13a19e81ce82"
+        decimals: 18
+      - symbol: "WBNB"
+        contract: "0xbb4cdb9cbd36b01bd1cbaebf2de08d9173bc095c"
+        decimals: 18
+  
+  # Ethereum 主网
+  ethereum:
+    rpc_url: "https://ethereum.publicnode.com"
+    scan_url: "https://etherscan.io"
+    token_name: "ETH"
+    chain_id: 1
+    # 区块确认配置 - Ethereum需要较多确认数
+    confirmation_blocks: 12  # Ethereum标准确认数
+    block_time: 12  # 平均出块时间(秒)
+    # 代币合约
+    usdt_contract: "0xdAC17F958D2ee523a2206206994597C13D831ec7"
+    usdc_contract: "0xA0b86a33E6441F8C4CE1a883e5d39d9Dd5ae8F8c"
+    custom_tokens:
+      - symbol: "WETH"
+        contract: "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"
+        decimals: 18
+      - symbol: "DAI"
+        contract: "0x6B175474E89094C44Da98b954EedeAC495271d0F"
+        decimals: 18
+  
+  # Polygon 链
+  polygon:
+    rpc_url: "https://polygon-rpc.com"
+    scan_url: "https://polygonscan.com"
+    token_name: "MATIC"
+    chain_id: 137
+    # 区块确认配置 - Polygon需要较多确认数防止重组
+    confirmation_blocks: 50  # Polygon推荐确认数
+    block_time: 2  # 平均出块时间(秒)
+    # 代币合约
+    usdt_contract: "0xc2132d05d31c914a87c6611c10748aeb04b58e8f"
+    usdc_contract: "0x2791bca1f2de4661ed88a30c99a7a9449aa84174"
+    custom_tokens:
+      - symbol: "WMATIC"
+        contract: "0x0d500b1d8e8ef31e21c99d1db9a6444d3adf1270"
+        decimals: 18
+  
+  # Arbitrum One
+  arbitrum:
+    rpc_url: "https://arb1.arbitrum.io/rpc"
+    scan_url: "https://arbiscan.io"
+    token_name: "ETH"
+    chain_id: 42161
+    # 区块确认配置 - L2链，较少确认数但需要等待L1最终确认
+    confirmation_blocks: 5  # Arbitrum本地确认
+    l1_finality_blocks: 12  # 等待Ethereum L1最终确认
+    block_time: 1  # 平均出块时间(秒)
+    # 代币合约
+    usdt_contract: "0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9"
+    usdc_contract: "0xaf88d065e77c8cC2239327C5EDb3A432268e5831"
+    custom_tokens:
+      - symbol: "ARB"
+        contract: "0x912CE59144191C1204E64559FE8253a0e49E6548"
+        decimals: 18
 
+  # Optimism
+  optimism:
+    rpc_url: "https://mainnet.optimism.io"
+    scan_url: "https://optimistic.etherscan.io"
+    token_name: "ETH"
+    chain_id: 10
+    # 区块确认配置 - L2链，类似Arbitrum
+    confirmation_blocks: 5  # Optimism本地确认
+    l1_finality_blocks: 12  # 等待Ethereum L1最终确认
+    block_time: 2  # 平均出块时间(秒)
+    # 代币合约
+    usdt_contract: "0x94b008aA00579c1307B0EF2c499aD98a8ce58e58"
+    usdc_contract: "0x7F5c764cBc14f9669B88837ca1490cCa17c31607"
+    custom_tokens:
+      - symbol: "OP"
+        contract: "0x4200000000000000000000000000000000000042"
+        decimals: 18
+
+# 当前活跃的链
 active_chain: "bsc"
+
+# 监控配置
+monitor:
+  # 默认区块确认数（如果链配置中没有指定）
+  default_confirmation_blocks: 10
+  # 扫描间隔（秒）
+  scan_interval: 10
+  # 最大重试次数
+  max_retries: 3
+  # 最小转账金额阈值（用于过滤小额转账）
+  min_amount_thresholds:
+    USDT: 100
+    USDC: 100
+    BUSD: 100
+    default: 50
+  # 高风险交易额阈值（需要更多确认）
+  high_value_thresholds:
+    USDT: 100000  # 超过10万USDT需要额外确认
+    USDC: 100000
+    BUSD: 100000
+    default: 50000
+  # 高风险交易的额外确认数
+  high_value_extra_confirmations: 5
+
+# 日志配置
+logging:
+  level: "INFO"
+  file: "logs/evm_transfer_monitor.log"
+  max_size_mb: 10
+  backup_count: 5

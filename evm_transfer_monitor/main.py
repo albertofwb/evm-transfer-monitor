@@ -15,19 +15,19 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from core.evm_monitor import EVMMonitor, setup_signal_handlers
 from config.monitor_config import MonitorConfig
 from utils.log_utils import get_logger
-
+from utils.token_parser import TokenParser
 logger = get_logger(__name__)
 
 
-async def main():
+async def main(chain_name: str) -> int:
     """主函数 - 启动EVM监控器"""
     try:
         # 创建配置
-        config = MonitorConfig()
-        
+        config = MonitorConfig.from_chain_name(chain_name)
+        token_parser = TokenParser(chain_name)
         # 创建监控器
-        monitor = EVMMonitor(config)
-        
+        monitor = EVMMonitor(config, token_parser)
+
         # 设置信号处理器
         setup_signal_handlers(monitor)
         
@@ -44,5 +44,11 @@ async def main():
 
 
 if __name__ == '__main__':
-    exit_code = asyncio.run(main())
+    chain_name = sys.argv[1] if len(sys.argv) > 1 else "bsc"
+    logger.info(f"启动EVM转账监控器，链: {chain_name}")
+    # 运行主函数
+    logger.info("正在初始化监控器...")
+    logger.info("请稍候，正在加载配置和初始化监控器...")
+    logger.info("按 Ctrl+C 可以随时停止监控器")
+    exit_code = asyncio.run(main(chain_name))
     sys.exit(exit_code)
