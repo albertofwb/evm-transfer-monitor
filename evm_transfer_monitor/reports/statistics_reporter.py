@@ -7,12 +7,12 @@
 import time
 from typing import Dict, Any
 
-from monitor_config import MonitorConfig
-from rpc_manager import RPCManager
-from transaction_processor import TransactionProcessor
-from confirmation_manager import ConfirmationManager
-from data_types import MonitorStatus
-from log_utils import get_logger
+from config.monitor_config import MonitorConfig
+from managers.rpc_manager import RPCManager
+from processors.transaction_processor import TransactionProcessor
+from managers.confirmation_manager import ConfirmationManager
+from models.data_types import MonitorStatus
+from utils.log_utils import get_logger
 
 logger = get_logger(__name__)
 

@@ -25,12 +25,6 @@ ConfigMap = _loaded_config.get('chains', {}) if _loaded_config else {}
 ActiveConfig = ConfigMap.get(_active_chain, {}) if ConfigMap else {}
 
 
-def get_config():
-    """
-    获取当前活跃链的配置。
-    如果配置文件加载失败，则返回默认配置。
-    """
-    return ActiveConfig
 
 if __name__ == "__main__":
     print("\n--- ConfigMap (所有链的配置) ---")

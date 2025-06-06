@@ -2,6 +2,7 @@
 主监控器类
 
 协调各个组件，提供统一的监控接口和控制逻辑
+支持两种监控策略：大额交易监控 和 指定地址监控
 """
 
 import asyncio
@@ -11,14 +12,14 @@ from typing import Optional, Dict, Any
 
 from web3.exceptions import BlockNotFound
 
-from monitor_config import MonitorConfig
-from rpc_manager import RPCManager
-from transaction_processor import TransactionProcessor
-from confirmation_manager import ConfirmationManager
-from statistics_reporter import StatisticsReporter
-from data_types import MonitorStatus
-from token_parser import TokenParser
-from log_utils import get_logger
+from config.monitor_config import MonitorConfig, MonitorStrategy
+from managers.rpc_manager import RPCManager
+from processors.transaction_processor import TransactionProcessor
+from managers.confirmation_manager import ConfirmationManager
+from reports.statistics_reporter import StatisticsReporter
+from models.data_types import MonitorStatus
+from utils.token_parser import TokenParser
+from utils.log_utils import get_logger
 
 logger = get_logger(__name__)
 
@@ -89,12 +90,27 @@ class EVMMonitor:
     
     def _log_startup_info(self) -> None:
         """记录启动信息"""
-        logger.info("🚀 开始监控 EVM 链交易（包含代币转账）")
-        thresholds = self.config.thresholds
-        threshold_info = " | ".join([
-            f"{token}≥{amount:,.0f}" for token, amount in thresholds.items()
-        ])
-        logger.info(f"📈 监控阈值: {threshold_info}")
+        logger.info("🚀 开始监控 EVM 链交易")
+        
+        # 显示当前策略
+        strategy_desc = self.config.get_strategy_description()
+        logger.info(f"📋 监控策略: {strategy_desc}")
+        
+        if self.config.is_large_amount_strategy():
+            # 大额交易策略 - 显示阈值
+            thresholds = self.config.thresholds
+            threshold_info = " | ".join([
+                f"{token}≥{amount:,.0f}" for token, amount in thresholds.items()
+            ])
+            logger.info(f"📈 监控阈值: {threshold_info}")
+        elif self.config.is_watch_address_strategy():
+            # 地址监控策略 - 显示监控地址
+            logger.info(f"👁️ 监控地址数量: {len(self.config.watch_addresses)}")
+            for i, addr in enumerate(self.config.watch_addresses[:5], 1):  # 只显示前5个地址
+                logger.info(f"   {i}. {addr}")
+            if len(self.config.watch_addresses) > 5:
+                logger.info(f"   ... 还有 {len(self.config.watch_addresses) - 5} 个地址")
+        
         logger.info(f"⚙️ 确认要求: {self.config.required_confirmations} 个区块")
     
     async def _monitoring_loop(self) -> None:
@@ -182,7 +198,10 @@ class EVMMonitor:
                     transactions_found += 1
             
             if transactions_found > 0:
-                logger.debug(f"区块 {block_number} 发现 {transactions_found} 笔大额交易")
+                if self.config.is_large_amount_strategy():
+                    logger.debug(f"区块 {block_number} 发现 {transactions_found} 笔大额交易")
+                else:
+                    logger.debug(f"区块 {block_number} 发现 {transactions_found} 笔监控地址交易")
             
             return True
             
@@ -236,8 +255,30 @@ class EVMMonitor:
             self.rpc_manager, self.tx_processor, self.confirmation_manager
         )
     
+    # 策略管理方法
+    def set_monitor_strategy(self, strategy_name: str) -> None:
+        """设置监控策略"""
+        try:
+            strategy = MonitorStrategy(strategy_name)
+            old_strategy = self.config.monitor_strategy
+            self.config.set_strategy(strategy)
+            
+            # 同步更新交易处理器的配置
+            self.tx_processor.config = self.config
+            
+            logger.info(f"🔧 监控策略已更新: {old_strategy.value} => {strategy.value}")
+            logger.info(f"📋 当前策略: {self.config.get_strategy_description()}")
+        except ValueError:
+            logger.error(f"无效的监控策略: {strategy_name}")
+            logger.info("可用策略: large_amount, watch_address")
+    
+    # 大额交易策略相关方法
     def update_thresholds(self, **thresholds) -> None:
-        """动态更新交易阈值"""
+        """动态更新交易阈值（仅在大额交易策略下有效）"""
+        if not self.config.is_large_amount_strategy():
+            logger.warning("当前策略为地址监控，阈值设置无效")
+            return
+        
         old_thresholds = self.config.thresholds.copy()
         
         for token, threshold in thresholds.items():
@@ -253,6 +294,27 @@ class EVMMonitor:
         self.tx_processor.config = self.config
         
         logger.info(f"📈 当前阈值: {self.config.thresholds}")
+    
+    # 地址监控策略相关方法
+    def add_watch_address(self, address: str) -> None:
+        """添加监控地址"""
+        self.config.add_watch_address(address)
+        self.tx_processor.config = self.config
+        logger.info(f"🔧 添加监控地址: {address}")
+        logger.info(f"👁️ 当前监控地址数量: {len(self.config.watch_addresses)}")
+    
+    def remove_watch_address(self, address: str) -> None:
+        """移除监控地址"""
+        self.config.remove_watch_address(address)
+        self.tx_processor.config = self.config
+        logger.info(f"🔧 移除监控地址: {address}")
+        logger.info(f"👁️ 当前监控地址数量: {len(self.config.watch_addresses)}")
+    
+    def update_watch_addresses(self, addresses: list) -> None:
+        """更新监控地址列表"""
+        self.config.watch_addresses = addresses
+        self.tx_processor.config = self.config
+        logger.info(f"🔧 监控地址列表已更新: {len(addresses)} 个地址")
     
     def update_config(self, **config_updates) -> None:
         """更新配置参数"""

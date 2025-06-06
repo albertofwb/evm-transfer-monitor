@@ -3,7 +3,7 @@
 用于解析 ERC-20 代币的转账交易，增强了对不规范数据的处理能力
 """
 
-from log_utils import get_logger
+from utils.log_utils import get_logger
 import re
 
 logger = get_logger(__name__)
@@ -194,98 +194,6 @@ class TokenParser:
             return f"{amount:,.{precision}f} {token_symbol}"
 
 
-# 改进的调试工具
-class TokenParserDebug:
-    """代币解析调试工具 - 增强版"""
-    
-    @staticmethod
-    def debug_parse_transfer(tx, token_symbol='USDT'):
-        """带详细调试信息的解析方法"""
-        print(f"\n=== 调试解析 {token_symbol} 转账 ===")
-        print(f"交易哈希: {tx.get('hash', 'N/A')}")
-        print(f"发送方: {tx.get('from', 'N/A')}")
-        print(f"接收方(合约): {tx.get('to', 'N/A')}")
-        
-        if not tx.get('input'):
-            print("❌ 没有 input 数据")
-            return None
-            
-        input_data = tx['input']
-        print(f"Input长度: {len(input_data)} 字符")
-        print(f"完整Input: {input_data}")
-        
-        # 规范化处理
-        hex_data = input_data[2:] if input_data.startswith('0x') else input_data
-        print(f"十六进制数据长度: {len(hex_data)} 字符")
-        
-        if len(hex_data) < 72:
-            print("❌ Input 数据太短，至少需要72个字符 (方法签名8 + 地址参数64)")
-            return None
-            
-        print(f"\n--- 数据分解 ---")
-        print(f"方法签名: {hex_data[:8]} (应该是 a9059cbb)")
-        
-        if len(hex_data) >= 72:
-            print(f"参数1(地址)完整: {hex_data[8:72]}")
-            print(f"  - 填充部分: {hex_data[8:32]} (应该全是0)")
-            print(f"  - 地址部分: {hex_data[32:72]}")
-            print(f"  - 完整地址: 0x{hex_data[32:72]}")
-        
-        if len(hex_data) >= 136:
-            print(f"参数2(金额)完整: {hex_data[72:136]}")
-        elif len(hex_data) > 72:
-            incomplete_amount = hex_data[72:]
-            print(f"参数2(金额)不完整: {incomplete_amount} (长度: {len(incomplete_amount)})")
-            print(f"补0后的金额: {incomplete_amount.ljust(64, '0')}")
-        else:
-            print("参数2(金额): 缺失")
-        
-        # 执行实际解析
-        result = TokenParser.parse_erc20_transfer(tx, token_symbol)
-        
-        if result:
-            print(f"\n✅ 解析成功:")
-            print(f"   发送方: {result['from']}")
-            print(f"   接收方: {result['to']}")
-            print(f"   金额: {TokenParser.format_amount(result['amount'], result['token'])}")
-            print(f"   原始金额(wei): {result['raw_amount_wei']}")
-            print(f"   代币: {result['token']}")
-        else:
-            print(f"\n❌ 解析失败")
-            
-        return result
-    
-    @staticmethod
-    def test_with_sample_data():
-        """使用示例数据测试 - 包括你遇到的不完整数据"""
-        print("=== 测试示例数据 ===")
-        
-        # 你遇到的不完整数据
-        problematic_tx = {
-            'hash': '0x1234567890abcdef',
-            'from': '0x1234567890123456789012345678901234567890',
-            'to': '0x55d398326f99059fF775485246999027B3197955',  # USDT 合约
-            'input': '0xa9059cbb000000000000000000000000742d35cc6600c10b7c682e7ad63b71cbbe65c23000000000000000000000000000000000000000000000000000000174876e800'
-        }
-        
-        print("\n【测试不完整数据】")
-        result1 = TokenParserDebug.debug_parse_transfer(problematic_tx, 'USDT')
-        
-        # 完整的标准数据作为对比
-        complete_tx = {
-            'hash': '0xabcdef1234567890',
-            'from': '0x1234567890123456789012345678901234567890',
-            'to': '0x55d398326f99059fF775485246999027B3197955',  # USDT 合约
-            'input': '0xa9059cbb000000000000000000000000742d35cc6600c10b7c682e7ad63b71cbbe65c2300000000000000000000000000000000000000000000000000000174876e8000'  # 补全了最后一个0
-        }
-        
-        print(f"\n{'='*50}")
-        print("【测试完整数据作为对比】")
-        result2 = TokenParserDebug.debug_parse_transfer(complete_tx, 'USDT')
-        
-        return result1, result2
-
-
 if __name__ == '__main__':
     # 运行测试
-    TokenParserDebug.test_with_sample_data()
+    print("TokenParser 模块加载完成")

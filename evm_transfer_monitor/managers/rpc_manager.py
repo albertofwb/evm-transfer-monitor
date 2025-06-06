@@ -12,9 +12,9 @@ from typing import Dict, Any, Optional
 from web3 import AsyncWeb3
 from web3.middleware import ExtraDataToPOAMiddleware
 
-from monitor_config import MonitorConfig
-from data_types import PerformanceMetrics
-from log_utils import get_logger
+from config.monitor_config import MonitorConfig
+from models.data_types import PerformanceMetrics
+from utils.log_utils import get_logger
 
 logger = get_logger(__name__)
 

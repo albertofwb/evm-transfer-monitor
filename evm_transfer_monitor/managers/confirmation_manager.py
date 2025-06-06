@@ -8,11 +8,11 @@ import time
 from collections import defaultdict
 from typing import Dict, List
 
-from monitor_config import MonitorConfig
-from rpc_manager import RPCManager
-from data_types import TransactionInfo
-from token_parser import TokenParser
-from log_utils import get_logger
+from config.monitor_config import MonitorConfig
+from managers.rpc_manager import RPCManager
+from models.data_types import TransactionInfo
+from utils.token_parser import TokenParser
+from utils.log_utils import get_logger
 
 logger = get_logger(__name__)
 

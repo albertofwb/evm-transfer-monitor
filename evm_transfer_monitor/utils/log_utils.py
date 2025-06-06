@@ -3,9 +3,10 @@ from logging.handlers import RotatingFileHandler
 import os
 import sys
 from time import time, strftime, localtime
-PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
+
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PROJECT_NAME = os.path.basename(PROJECT_ROOT)
-LOG_DIR = PROJECT_ROOT
+LOG_DIR = os.path.expanduser('logs')
 
 
 if not os.path.exists(LOG_DIR):

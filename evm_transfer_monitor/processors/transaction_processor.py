@@ -1,18 +1,20 @@
 """
 交易处理器
 
-负责检测和分析区块链交易，识别大额转账
+负责检测和分析区块链交易，支持两种监控策略：
+1. 大额交易监控 - 检测超过阈值的交易
+2. 指定地址监控 - 检测发送到特定地址的交易
 """
 
 import time
 from collections import defaultdict
 from typing import Dict, Any, Optional
 
-from monitor_config import MonitorConfig
-from rpc_manager import RPCManager
-from data_types import TransactionInfo, TransactionStats
-from token_parser import TokenParser
-from log_utils import get_logger
+from config.monitor_config import MonitorConfig
+from managers.rpc_manager import RPCManager
+from models.data_types import TransactionInfo, TransactionStats
+from utils.token_parser import TokenParser
+from utils.log_utils import get_logger
 
 logger = get_logger(__name__)
 
@@ -30,7 +32,7 @@ class TransactionProcessor:
         self.token_transactions_processed: int = 0
     
     async def process_transaction(self, tx: Dict[str, Any]) -> Optional[TransactionInfo]:
-        """处理单个交易，检测大额转账"""
+        """处理单个交易，根据配置的策略进行检测"""
         block_number = tx.get('blockNumber')
         
         # 检测原生代币转账
@@ -46,42 +48,61 @@ class TransactionProcessor:
         return None
     
     def _process_native_transaction(self, tx: Dict[str, Any], block_number: int) -> Optional[TransactionInfo]:
-        """处理原生代币交易"""
+        """处理原生代币交易，根据策略检测"""
         wei = tx['value']
+        if wei == 0:
+            return None
+            
         token_amount = self.rpc_manager.w3.from_wei(wei, 'ether')
         
-        if token_amount >= self.config.get_threshold(self.config.token_name):
-            gas_cost = self.rpc_manager.w3.from_wei(tx['gasPrice'] * tx['gas'], 'ether')
-            tx_hash = self.rpc_manager.w3.to_hex(tx['hash'])
-            
-            self._log_native_transaction(tx, token_amount, gas_cost, block_number, tx_hash)
-            
-            self.transactions_found[self.config.token_name] += 1
-            self.transactions_found['total'] += 1
-            
-            return TransactionInfo(
-                hash=tx_hash,
-                tx=tx,
-                value=token_amount,
-                tx_type=self.config.token_name,
-                found_at=time.time(),
-                block_number=block_number
-            )
+        # 根据策略检测
+        if self.config.is_large_amount_strategy():
+            # 大额交易策略：检查金额阈值
+            if token_amount < self.config.get_threshold(self.config.token_name):
+                return None
+        elif self.config.is_watch_address_strategy():
+            # 地址监控策略：检查接收地址
+            to_address = tx.get('to')
+            if not to_address or not self.config.is_watched_address(to_address):
+                return None
+        else:
+            return None
         
-        return None
+        # 记录交易
+        gas_cost = self.rpc_manager.w3.from_wei(tx['gasPrice'] * tx['gas'], 'ether')
+        tx_hash = self.rpc_manager.w3.to_hex(tx['hash'])
+        
+        self._log_native_transaction(tx, token_amount, gas_cost, block_number, tx_hash)
+        
+        self.transactions_found[self.config.token_name] += 1
+        self.transactions_found['total'] += 1
+        
+        return TransactionInfo(
+            hash=tx_hash,
+            tx=tx,
+            value=token_amount,
+            tx_type=self.config.token_name,
+            found_at=time.time(),
+            block_number=block_number
+        )
     
     def _log_native_transaction(self, tx: Dict[str, Any], amount: float, 
                               gas_cost: float, block_number: int, tx_hash: str) -> None:
         """记录原生代币交易日志"""
+        if self.config.is_large_amount_strategy():
+            prefix = f"💰 大额 {self.config.token_name}"
+        else:
+            prefix = f"📨 接收 {self.config.token_name}"
+            
         logger.info(
-            f"💰 大额 {self.config.token_name}: {tx['from']} => {tx['to']} | "
+            f"{prefix}: {tx['from']} => {tx['to']} | "
             f"{TokenParser.format_amount(amount, self.config.token_name)} | "
             f"Gas: {gas_cost:,.5f} {self.config.token_name} | "
             f"区块: {block_number} | {self.config.scan_url}/tx/{tx_hash}"
         )
     
     def _process_token_transaction(self, tx: Dict[str, Any], block_number: int) -> Optional[TransactionInfo]:
-        """处理代币交易"""
+        """处理代币交易，根据策略检测"""
         if not tx.get('to'):
             return None
         
@@ -99,9 +120,19 @@ class TransactionProcessor:
         
         self.token_transactions_processed += 1
         
-        # 检查是否为大额转账
-        threshold = self.config.get_threshold(token_symbol)
-        if token_info['amount'] >= threshold:
+        # 根据策略检测
+        should_process = False
+        
+        if self.config.is_large_amount_strategy():
+            # 大额交易策略：检查金额阈值
+            threshold = self.config.get_threshold(token_symbol)
+            should_process = token_info['amount'] >= threshold
+        elif self.config.is_watch_address_strategy():
+            # 地址监控策略：检查接收地址
+            to_address = token_info.get('to')
+            should_process = to_address and self.config.is_watched_address(to_address)
+        
+        if should_process:
             tx_hash = self.rpc_manager.w3.to_hex(tx['hash'])
             
             self._log_token_transaction(token_info, token_symbol, block_number, tx_hash)
@@ -128,8 +159,13 @@ class TransactionProcessor:
         icons = {'USDT': '💵', 'USDC': '💸'}
         icon = icons.get(token_symbol, '🪙')
         
+        if self.config.is_large_amount_strategy():
+            prefix = f"{icon} 大额{token_symbol}"
+        else:
+            prefix = f"{icon} 接收{token_symbol}"
+        
         logger.info(
-            f"{icon} 大额{token_symbol}: {token_info['from']} => {token_info['to']} | "
+            f"{prefix}: {token_info['from']} => {token_info['to']} | "
             f"{TokenParser.format_amount(token_info['amount'], token_symbol)} | "
             f"区块: {block_number} | {self.config.scan_url}/tx/{tx_hash}"
         )
@@ -168,6 +204,10 @@ class TransactionProcessor:
         }
     
     def update_thresholds(self, **new_thresholds) -> None:
-        """更新交易阈值"""
+        """更新交易阈值（仅在大额交易策略下有效）"""
+        if not self.config.is_large_amount_strategy():
+            logger.warning("当前策略为地址监控，阈值设置无效")
+            return
+        
         self.config.update_thresholds(**new_thresholds)
         logger.info(f"交易阈值已更新: {self.config.thresholds}")
