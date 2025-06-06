@@ -5,7 +5,9 @@ import sys
 from time import time, strftime, localtime
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 PROJECT_NAME = os.path.basename(PROJECT_ROOT)
-LOG_DIR = os.path.join(PROJECT_ROOT, "log")
+LOG_DIR = PROJECT_ROOT
+
+
 if not os.path.exists(LOG_DIR):
     os.makedirs(LOG_DIR)
 LOG_PATH = os.path.join(LOG_DIR, f"{PROJECT_NAME}.log")

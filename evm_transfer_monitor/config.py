@@ -18,11 +18,19 @@ def _load_config(config_path="config.yml"):
 
 # 在模块加载时执行配置加载和解析
 _loaded_config = _load_config()
-_active_chain = _loaded_config.get('active_chain', {})
+_active_chain = _loaded_config.get('active_chain', 'core') if _loaded_config else 'core'
 
 # 全局变量，用于存储当前活跃链的配置
-ActiveConfig = _loaded_config.get('active_config', {})
-ConfigMap = _loaded_config.get('chains', {})
+ConfigMap = _loaded_config.get('chains', {}) if _loaded_config else {}
+ActiveConfig = ConfigMap.get(_active_chain, {}) if ConfigMap else {}
+
+
+def get_config():
+    """
+    获取当前活跃链的配置。
+    如果配置文件加载失败，则返回默认配置。
+    """
+    return ActiveConfig
 
 if __name__ == "__main__":
     print("\n--- ConfigMap (所有链的配置) ---")
