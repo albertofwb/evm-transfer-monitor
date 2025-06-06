@@ -27,6 +27,12 @@ class StatisticsReporter:
         self.last_stats_log: float = time.time()
         self.peak_rpc_rate: float = 0.0
         self.peak_pending_count: int = 0
+        
+        # 区块处理时间统计
+        self.processing_times: list = []  # 存储最近的处理时间
+        self.max_processing_time: float = 0.0
+        self.min_processing_time: float = float('inf')
+        self.total_processing_time: float = 0.0
     
     def increment_blocks_processed(self) -> None:
         """增加已处理区块数"""
@@ -135,21 +141,100 @@ class StatisticsReporter:
     
     def log_processing_progress(self, new_blocks: int, current_block: int, 
                              rpc_manager: RPCManager, tx_processor: TransactionProcessor, 
-                             confirmation_manager: ConfirmationManager) -> None:
-        """记录处理进度"""
+                             confirmation_manager: ConfirmationManager, 
+                             processing_time: float = None) -> None:
+        """记录处理进度
+        
+        Args:
+            new_blocks: 新处理的区块数量
+            current_block: 当前区块号
+            rpc_manager: RPC管理器
+            tx_processor: 交易处理器
+            confirmation_manager: 确认管理器
+            processing_time: 处理这批区块花费的时间（秒），可选参数
+        """
         pending_count = confirmation_manager.get_pending_count()
         rpc_stats = rpc_manager.get_performance_stats()
         tx_stats = tx_processor.get_stats()
         
-        logger.info(
-            f"📈 处理 {new_blocks} 新区块 | "
-            f"⌚ 耗时: {time.time() - self.start_time:.2f}s | "
-            f"当前: {current_block} | "
-            f"待确认: {pending_count} | "
-            f"RPC: {rpc_stats.rpc_calls} ({rpc_stats.avg_rpc_per_second:.2f}/s) | "
-            f"缓存: {rpc_stats.cache_hits}/{rpc_stats.cache_hits + rpc_stats.cache_misses} | "
+        # 构建基础日志信息
+        log_parts = [
+            f"📈 处理 {new_blocks} 新区块",
+            f"当前: {current_block}",
+            f"待确认: {pending_count}",
+            f"RPC: {rpc_stats.rpc_calls} ({rpc_stats.avg_rpc_per_second:.2f}/s)",
+            f"缓存: {rpc_stats.cache_hits}/{rpc_stats.cache_hits + rpc_stats.cache_misses}",
             f"发现: {tx_stats.transactions_found.get('total', 0)} 笔交易"
-        )
+        ]
+        
+        # 如果提供了处理时间，添加时间统计
+        if processing_time is not None:
+            # 更新处理时间统计
+            self._update_processing_time_stats(processing_time)
+            
+            # 计算每个区块的平均处理时间
+            avg_time_per_block = processing_time / max(new_blocks, 1)
+            # 计算区块处理速率
+            blocks_per_second = new_blocks / max(processing_time, 0.001)
+            
+            # 获取最近的平均处理旷间（最近10次）
+            recent_avg = self._get_recent_average_processing_time()
+            
+            log_parts.insert(1, f"耗时: {processing_time:.2f}s")
+            log_parts.insert(2, f"速率: {blocks_per_second:.1f} 区块/s")
+            log_parts.insert(3, f"均时: {avg_time_per_block:.3f}s/区块")
+            
+            # 如果有足够的历史数据，显示近期平均
+            if recent_avg is not None:
+                log_parts.append(f"近期平均: {recent_avg:.3f}s/区块")
+        
+        logger.info(" | ".join(log_parts))
+    
+    def _update_processing_time_stats(self, processing_time: float) -> None:
+        """更新处理时间统计数据"""
+        # 更新最大、最小处理时间
+        self.max_processing_time = max(self.max_processing_time, processing_time)
+        if self.min_processing_time == float('inf'):
+            self.min_processing_time = processing_time
+        else:
+            self.min_processing_time = min(self.min_processing_time, processing_time)
+        
+        # 累计总处理时间
+        self.total_processing_time += processing_time
+        
+        # 保存最近50次的处理时间记录
+        self.processing_times.append(processing_time)
+        if len(self.processing_times) > 50:
+            self.processing_times.pop(0)
+    
+    def _get_recent_average_processing_time(self) -> float:
+        """获取最近的平均处理时间（最近10次）"""
+        if len(self.processing_times) < 3:  # 至少需要有3次记录
+            return None
+        
+        recent_times = self.processing_times[-10:]  # 取最近10次
+        return sum(recent_times) / len(recent_times)
+    
+    def get_processing_time_stats(self) -> dict:
+        """获取处理时间统计数据"""
+        if not self.processing_times:
+            return {
+                'count': 0,
+                'total_time': 0.0,
+                'avg_time': 0.0,
+                'min_time': 0.0,
+                'max_time': 0.0,
+                'recent_avg': 0.0
+            }
+        
+        return {
+            'count': len(self.processing_times),
+            'total_time': self.total_processing_time,
+            'avg_time': self.total_processing_time / len(self.processing_times),
+            'min_time': self.min_processing_time if self.min_processing_time != float('inf') else 0.0,
+            'max_time': self.max_processing_time,
+            'recent_avg': self._get_recent_average_processing_time() or 0.0
+        }
     
     def log_final_stats(self, rpc_manager: RPCManager, 
                        tx_processor: TransactionProcessor, 
@@ -181,6 +266,9 @@ class StatisticsReporter:
         logger.info(f"🎯 峰值统计:")
         logger.info(f"   最高RPC速率: {self.peak_rpc_rate:.2f} 次/秒")
         logger.info(f"   最大待确认数: {self.peak_pending_count} 笔")
+        
+        # 区块处理时间统计
+        self._log_final_processing_time_stats()
         
         logger.info("=" * 80)
     
@@ -253,7 +341,8 @@ class StatisticsReporter:
             'confirmations': confirmation_manager.get_stats(),
             'peak_metrics': {
                 'max_rpc_rate': self.peak_rpc_rate,
-                'max_pending_count': self.peak_pending_count
+                'max_pending_count': self.peak_pending_count,
+                'processing_time_stats': self.get_processing_time_stats()
             },
             'configuration_summary': {
                 'thresholds': self.config.thresholds.copy(),

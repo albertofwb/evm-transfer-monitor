@@ -236,6 +236,10 @@ class TokenParser:
         elif amount >= 1_000:
             return f"{amount/1_000:,.{precision}f}K {token_symbol}"
         else:
+            if token_symbol in self.decimals:
+                precision = self.decimals[token_symbol]
+            else:
+                precision = 2
             return f"{amount:,.{precision}f} {token_symbol}"
 
 

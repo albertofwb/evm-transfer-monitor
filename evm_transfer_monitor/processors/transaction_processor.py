@@ -96,7 +96,7 @@ class TransactionProcessor:
             
         logger.info(
             f"{prefix}: {tx['from']} => {tx['to']} | "
-            f"{TokenParser.format_amount(amount, self.config.token_name)} | "
+            f"{self.token_parser.format_amount(amount, self.config.token_name)} | "
             f"Gas: {gas_cost:,.5f} {self.config.token_name} | "
             f"区块: {block_number} | {self.config.scan_url}/tx/{tx_hash}"
         )
@@ -124,19 +124,26 @@ class TransactionProcessor:
         should_process = False
         
         if self.config.is_large_amount_strategy():
+            to_address = token_info.get('to').lower()
+            from_address = token_info.get('from').lower()
             # 大额交易策略：检查金额阈值
             threshold = self.config.get_threshold(token_symbol)
-            should_process = token_info['amount'] >= threshold
+            should_process = token_info['amount'] >= threshold and to_address
         elif self.config.is_watch_address_strategy():
             # 地址监控策略：检查接收地址
-            to_address = token_info.get('to')
-            should_process = to_address and self.config.is_watched_address(to_address)
-        
+            to_address = token_info.get('to').lower()
+            from_address = token_info.get('from').lower()
+            if to_address == from_address:
+                logger.warning(
+                    f"⚠️ 代币转账检测到发送地址和接收地址相同: {tx['from']} => {tx['to']} | "
+                    f"忽略本次交易"
+                )
+            else:
+                should_process = to_address and self.config.is_watched_address(to_address)
+
         if should_process:
             tx_hash = self.rpc_manager.w3.to_hex(tx['hash'])
-            
             self._log_token_transaction(token_info, token_symbol, block_number, tx_hash)
-            
             self.transactions_found[token_symbol] += 1
             self.transactions_found['total'] += 1
             
@@ -166,7 +173,7 @@ class TransactionProcessor:
         
         logger.info(
             f"{prefix}: {token_info['from']} => {token_info['to']} | "
-            f"{TokenParser.format_amount(token_info['amount'], token_symbol)} | "
+            f"{self.token_parser.format_amount(token_info['amount'], token_symbol)} | "
             f"区块: {block_number} | {self.config.scan_url}/tx/{tx_hash}"
         )
     

@@ -20,8 +20,9 @@ logger = get_logger(__name__)
 class ConfirmationManager:
     """确认管理器 - 负责跟踪交易确认状态"""
     
-    def __init__(self, config: MonitorConfig, rpc_manager: RPCManager):
+    def __init__(self, config: MonitorConfig, rpc_manager: RPCManager, token_parser: TokenParser):
         self.config = config
+        self.token_parser = token_parser
         self.rpc_manager = rpc_manager
         self.pending_by_block: Dict[int, List[TransactionInfo]] = defaultdict(list)
         self.last_check_time: float = 0
@@ -81,16 +82,16 @@ class ConfirmationManager:
         if tx_info.tx_type == self.config.token_name:
             logger.info(
                 f"✅ {self.config.token_name}交易确认: {tx_info.get_from_address()} => {tx_info.get_to_address()} | "
-                f"{TokenParser.format_amount(tx_info.value, self.config.token_name)} | "
+                f"{self.token_parser.format_amount(tx_info.value, self.config.token_name)} | "
                 f"确认数: {confirmations} | {self.config.scan_url}/tx/{tx_info.hash}"
             )
         else:
             logger.info(
                 f"✅ {tx_info.tx_type}交易确认: {tx_info.get_from_address()} => {tx_info.get_to_address()} | "
-                f"{TokenParser.format_amount(tx_info.value, tx_info.tx_type)} | "
+                f"{self.token_parser.format_amount(tx_info.value, tx_info.tx_type)} | "
                 f"确认数: {confirmations} | {self.config.scan_url}/tx/{tx_info.hash}"
             )
-    
+
     def cleanup_timeout_transactions(self) -> int:
         """清理超时的交易"""
         current_time = time.time()

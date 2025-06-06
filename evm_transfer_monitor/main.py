@@ -45,10 +45,5 @@ async def main(chain_name: str) -> int:
 
 if __name__ == '__main__':
     chain_name = sys.argv[1] if len(sys.argv) > 1 else "bsc"
-    logger.info(f"启动EVM转账监控器，链: {chain_name}")
-    # 运行主函数
-    logger.info("正在初始化监控器...")
-    logger.info("请稍候，正在加载配置和初始化监控器...")
-    logger.info("按 Ctrl+C 可以随时停止监控器")
     exit_code = asyncio.run(main(chain_name))
     sys.exit(exit_code)

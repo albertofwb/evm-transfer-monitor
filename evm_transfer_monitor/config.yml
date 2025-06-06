@@ -27,7 +27,7 @@ chains:
     scan_url: "https://bscscan.com"
     token_name: "BNB"
     chain_id: 56
-    confirmation_blocks: 6
+    confirmation_blocks: 12  # BSC推荐确认数
     block_time: 3  # 平均出块时间(秒)
     # 代币合约
     usdt_contract: "0x55d398326f99059fF775485246999027B3197955"

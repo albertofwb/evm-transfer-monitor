@@ -36,7 +36,7 @@ class EVMMonitor:
         # 初始化各个组件
         self.rpc_manager = RPCManager(self.config)
         self.tx_processor = TransactionProcessor(self.config, self.token_parser,self.rpc_manager)
-        self.confirmation_manager = ConfirmationManager(self.config, self.rpc_manager)
+        self.confirmation_manager = ConfirmationManager(self.config, self.rpc_manager, self.token_parser)
         self.stats_reporter = StatisticsReporter(self.config)
     
     async def start_monitoring(self) -> None:
@@ -197,6 +197,13 @@ class EVMMonitor:
                 
                 tx_info = await self.tx_processor.process_transaction(tx)
                 if tx_info:
+                    tx = tx_info.tx
+                    if tx['from'].lower() == tx['to'].lower():
+                        logger.warning(
+                            f"⚠️ 代币转账检测到发送地址和接收地址相同: {tx['from']} => {tx['to']} | "
+                            f"忽略本次交易"
+                        )
+                        continue
                     self.confirmation_manager.add_pending_transaction(tx_info)
                     transactions_found += 1
             
@@ -233,7 +240,7 @@ class EVMMonitor:
         loop_time = time.time() - loop_start
         
         if loop_time > self.config.block_time:
-            logger.warning(f"⚠️ 处理耗时 {loop_time:.2f}s，可能跟不上出块速度")
+            logger.warning(f"⚠️ 处理耗时 {loop_time:.2f}s，可能跟不上出块速度 {self.config.block_time}")
             await asyncio.sleep(0.1)
         else:
             # 保持合理的轮询间隔

@@ -231,13 +231,10 @@ class MonitorConfig:
         Raises:
             ValueError: 当指定的链名称不存在时
         """
-        if chain_name not in ConfigMap:
-            available_chains = list(ConfigMap.keys())
-            raise ValueError(f"链 '{chain_name}' 不存在。可用的链: {available_chains}")
-        
         chain_config = ConfigMap[chain_name]
-        
         # 更新当前实例的配置
+        self.chain_name = chain_name
+        self.block_time = chain_config.get("block_time", 3)
         self.rpc_url = chain_config.get("rpc_url", "")
         self.scan_url = chain_config.get("scan_url", "")
         self.token_name = chain_config.get("token_name", "")

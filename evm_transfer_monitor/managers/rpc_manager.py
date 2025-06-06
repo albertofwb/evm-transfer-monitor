@@ -103,6 +103,7 @@ class RPCManager:
     
     async def test_connection(self) -> Dict[str, Any]:
         """测试网络连接并返回基本信息"""
+        logger.info(f"正在测试RPC {self.config.rpc_url} 连接...")
         try:
             latest_block = await self.get_cached_block_number()
             gas_price = await self.get_gas_price()
