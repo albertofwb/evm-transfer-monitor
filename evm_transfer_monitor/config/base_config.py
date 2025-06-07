@@ -50,6 +50,10 @@ LoggingConfig = _loaded_config.get('logging', {}) if _loaded_config else {}
 _RabbitMQConfigData = _loaded_config.get('rabbitmq', {}) if _loaded_config else {}
 
 
+# 钱包地址加载配置
+AddressLoadConfig = _loaded_config.get('address_loader') if _loaded_config else {}
+
+
 def get_rabbitmq_config() -> Dict[str, Any]:
     """
     获取 RabbitMQ 完整配置

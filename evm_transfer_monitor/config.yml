@@ -182,5 +182,14 @@ rabbitmq:
 logging:
   level: "INFO"
   file: "logs/evm_transfer_monitor.log"
+  format: "%(asctime)s %(levelname)s %(filename)s:%(lineno)s %(message)s"
   max_size_mb: 10
   backup_count: 5
+
+# 地址加载器配置
+address_loader:
+  base_url: "http://localhost:8081/api/v1/addresses/dump"
+  default_page_size: 2000
+  max_retries: 5         
+  retry_delay_seconds: 3 
+  timeout_seconds: 10    

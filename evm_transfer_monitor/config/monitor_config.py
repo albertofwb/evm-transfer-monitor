@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from typing import Dict
 from enum import Enum
 from config.base_config import ActiveConfig, ConfigMap
-from utils.load_address import load_wallet_addresses
+from utils.load_address import load_evm_wallet_addresses
 
 
 class MonitorStrategy(Enum):
@@ -48,7 +48,7 @@ class MonitorConfig:
     })
     
     # 监控地址列表（仅在 WATCH_ADDRESS 策略下使用）
-    watch_addresses: list = field(default_factory=load_wallet_addresses)
+    watch_addresses: list = field(default_factory=load_evm_wallet_addresses)
     
     # 缓存的小写地址集合，用于快速查找
     _watch_addresses_set: set = field(default_factory=set, init=False)
