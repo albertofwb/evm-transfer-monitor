@@ -4,27 +4,33 @@
 负责检测和分析区块链交易，支持两种监控策略：
 1. 大额交易监控 - 检测超过阈值的交易
 2. 指定地址监控 - 检测发送到特定地址的交易
+
+支持异步数据库操作
 """
 
 import time
+import asyncio
 from collections import defaultdict
 from typing import Dict, Any, Optional
 from utils.token_parser import TokenParser
 from config.monitor_config import MonitorConfig
 from managers.rpc_manager import RPCManager
 from models.data_types import TransactionInfo, TransactionStats
+from models.transaction_adapter import AsyncTransactionAdapter
+from db.database import get_database_manager
 from utils.log_utils import get_logger
 
 logger = get_logger(__name__)
 
 
 class TransactionProcessor:
-    """交易处理器 - 负责检测和分析交易"""
+    """交易处理器 - 负责检测和分析交易（支持异步数据库操作）"""
 
     def __init__(self, config: MonitorConfig, token_parser: TokenParser, rpc_manager: RPCManager):
         self.config = config
         self.token_parser = token_parser
         self.rpc_manager = rpc_manager
+        self.db_manager = get_database_manager()
 
         # 统计信息
         self.transactions_found: Dict[str, int] = defaultdict(int)
@@ -77,7 +83,7 @@ class TransactionProcessor:
         self.transactions_found[self.config.token_name] += 1
         self.transactions_found['total'] += 1
         
-        return TransactionInfo(
+        transaction_info = TransactionInfo(
             hash=tx_hash,
             tx=tx,
             value=token_amount,
@@ -85,6 +91,11 @@ class TransactionProcessor:
             found_at=time.time(),
             block_number=block_number
         )
+        
+        # 异步保存到数据库
+        asyncio.create_task(self._save_transaction_to_db_async(transaction_info))
+        
+        return transaction_info
     
     def _log_native_transaction(self, tx: Dict[str, Any], amount: float, 
                               gas_cost: float, block_number: int, tx_hash: str) -> None:
@@ -140,7 +151,7 @@ class TransactionProcessor:
             self.transactions_found[token_symbol] += 1
             self.transactions_found['total'] += 1
             
-            return TransactionInfo(
+            transaction_info = TransactionInfo(
                 hash=tx_hash,
                 tx=tx,
                 value=token_info['amount'],
@@ -149,6 +160,11 @@ class TransactionProcessor:
                 block_number=block_number,
                 token_info=token_info
             )
+            
+            # 异步保存到数据库
+            asyncio.create_task(self._save_transaction_to_db_async(transaction_info))
+            
+            return transaction_info
         
         return None
     
@@ -211,3 +227,79 @@ class TransactionProcessor:
         
         self.config.update_thresholds(**new_thresholds)
         logger.info(f"交易阈值已更新: {self.config.thresholds}")
+    
+    # =============================================================================
+    # 异步数据库操作方法
+    # =============================================================================
+    
+    async def _save_transaction_to_db_async(self, transaction_info: TransactionInfo) -> None:
+        """
+        异步保存交易信息到数据库
+        
+        Args:
+            transaction_info: 交易信息对象
+        """
+        try:
+            async with self.db_manager.get_async_session() as session:
+                # 提取用户ID（这里可以根据业务需求调整）
+                user_id = self._extract_user_id_from_transaction(transaction_info)
+                
+                # 保存交易信息
+                deposit_record = await AsyncTransactionAdapter.save_transaction(
+                    session, transaction_info, user_id
+                )
+                
+                if deposit_record:
+                    logger.debug(f"交易已保存到数据库: {transaction_info.hash}")
+                else:
+                    logger.warning(f"交易保存失败: {transaction_info.hash}")
+                    
+        except Exception as e:
+            logger.error(f"异步保存交易时出错: {e}")
+    
+    def _extract_user_id_from_transaction(self, transaction_info: TransactionInfo) -> str:
+        """
+        从交易信息中提取用户ID
+        
+        这里可以根据业务需求实现不同的逻辑：
+        - 地址监控策略：使用接收地址作为用户ID
+        - 大额交易策略：可能需要其他逻辑
+        - 也可以通过地址映射表查找用户
+        
+        Args:
+            transaction_info: 交易信息
+            
+        Returns:
+            str: 用户ID
+        """
+        if self.config.is_watch_address_strategy():
+            # 地址监控策略：使用接收地址作为用户ID
+            to_address = transaction_info.get_to_address()
+            return to_address.lower() if to_address else ""
+        else:
+            # 大额交易策略：默认使用接收地址
+            to_address = transaction_info.get_to_address()
+            return to_address.lower() if to_address else ""
+    
+    async def get_pending_deposit_notifications_async(self, required_confirmations: int = None) -> int:
+        """
+        异步获取待通知的充值记录数量
+        
+        Args:
+            required_confirmations: 所需确认数，默认使用配置中的值
+            
+        Returns:
+            int: 待通知记录数量
+        """
+        if required_confirmations is None:
+            required_confirmations = self.config.required_confirmations
+            
+        try:
+            async with self.db_manager.get_async_session() as session:
+                records = await AsyncTransactionAdapter.get_pending_notifications(
+                    session, required_confirmations
+                )
+                return len(records)
+        except Exception as e:
+            logger.error(f"获取待通知记录数量时出错: {e}")
+            return 0

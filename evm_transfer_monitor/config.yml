@@ -192,4 +192,22 @@ address_loader:
   default_page_size: 2000
   max_retries: 5         
   retry_delay_seconds: 3 
-  timeout_seconds: 10    
+  timeout_seconds: 10
+
+# 数据库配置
+database:
+  host: "postgres"
+  port: 5432
+  user: "postgres"
+  password: "password"
+  dbname: "bsc_monitor"
+  sslmode: "disable"
+
+# 通知参数
+notification:
+  enabled: true
+  url: "http://localhost:8080/api/v1/recharge/notify"
+  timeout: 30
+  retry_times: 3
+  retry_delay: 5  # 重试间隔（秒）
+  cleanup_days: 7  # 清理多少天前的成功通知记录

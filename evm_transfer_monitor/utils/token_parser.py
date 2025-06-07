@@ -5,7 +5,6 @@
 
 from utils.log_utils import get_logger
 from config.base_config import ActiveConfig, ConfigMap
-import re
 
 logger = get_logger(__name__)
 

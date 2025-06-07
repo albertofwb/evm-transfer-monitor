@@ -13,15 +13,15 @@ from typing import Optional, Dict, Any
 from web3.exceptions import BlockNotFound
 
 from config.monitor_config import MonitorConfig, MonitorStrategy
-from config.base_config import get_rabbitmq_config
-from managers.rpc_manager import RPCManager
-from processors.transaction_processor import TransactionProcessor
-from managers.confirmation_manager import ConfirmationManager
-from managers.queue_manager import AsyncRabbitMQConsumer, WalletUpdateHandler
-from reports.statistics_reporter import StatisticsReporter
 from models.data_types import MonitorStatus
 from utils.token_parser import TokenParser
 from utils.log_utils import get_logger
+
+# 导入新的初始化模块
+from core.monitor_initializer import MonitorInitializer
+from core.network_validator import NetworkValidator
+from core.rabbitmq_initializer import RabbitMQInitializer
+from core.startup_logger import StartupLogger
 
 logger = get_logger(__name__)
 
@@ -51,57 +51,42 @@ class EVMMonitor:
         self.is_running = False
         self.last_block = 0
         
-        # 初始化各个组件
-        self.rpc_manager = RPCManager(self.config)
-        self.tx_processor = TransactionProcessor(self.config, self.token_parser, self.rpc_manager)
-        self.confirmation_manager = ConfirmationManager(self.config, self.rpc_manager, self.token_parser)
-        self.stats_reporter = StatisticsReporter(self.config)
+        # 创建初始化器
+        self.initializer = MonitorInitializer(self.config, self.token_parser, self.chain_name)
         
-        # RabbitMQ 相关组件（每个实例独立配置）
-        self.rabbitmq_consumer: Optional[AsyncRabbitMQConsumer] = None
-        self.wallet_handler: Optional[WalletUpdateHandler] = None
-        self.rabbitmq_config = self._init_rabbitmq_config(rabbitmq_config)
+        # 初始化核心组件
+        components = self.initializer.init_core_components()
+        self.rpc_manager = components['rpc_manager']
+        self.tx_processor = components['tx_processor']
+        self.confirmation_manager = components['confirmation_manager']
+        self.stats_reporter = components['stats_reporter']
+        
+        # 初始化数据库和通知服务
+        db_notification_components = self.initializer.init_database_and_notification()
+        self.database_initializer = db_notification_components['database_initializer']
+        self.db_session = db_notification_components['db_session']
+        self.notification_initializer = db_notification_components['notification_initializer']
+        self.notification_service = db_notification_components['notification_service']
+        # self.notification_scheduler = db_notification_components['notification_scheduler']
+        self.notification_enabled = db_notification_components['notification_enabled']
+        self.scheduler_started = db_notification_components['scheduler_started']
+        
+        # 初始化RabbitMQ配置
+        self.rabbitmq_config = self.initializer.init_rabbitmq_config(rabbitmq_config)
         self.rabbitmq_enabled = self.rabbitmq_config.get('enabled', False)
         
-        # 给每个实例创建独特的队列名称
-        # if self.rabbitmq_enabled:
-            # self._customize_rabbitmq_config()
-    
-    def _init_rabbitmq_config(self, custom_config: Optional[Dict[str, Any]]) -> Dict[str, Any]:
-        """初始化 RabbitMQ 配置
+        # 为当前实例定制RabbitMQ配置
+        if self.rabbitmq_enabled:
+            self.rabbitmq_config = self.initializer.customize_rabbitmq_config(self.rabbitmq_config)
         
-        Args:
-            custom_config: 自定义配置
-            
-        Returns:
-            最终的 RabbitMQ 配置
-        """
-        if custom_config:
-            # 使用自定义配置
-            return custom_config.copy()
-        else:
-            # 使用默认配置
-            return get_rabbitmq_config()
-    
-    def _customize_rabbitmq_config(self) -> None:
-        """为当前实例定制 RabbitMQ 配置"""
-        wallet_config = self.rabbitmq_config.get('wallet_updates', {})
+        # RabbitMQ相关组件（延迟初始化）
+        self.rabbitmq_initializer = RabbitMQInitializer(self)
+        self.rabbitmq_consumer = None
+        self.wallet_handler = None
         
-        # 为每个链创建独特的交换机名称
-        base_exchange = wallet_config.get('exchange_name', 'wallet_updates')
-        wallet_config['exchange_name'] = f"{base_exchange}_{self.chain_name}"
-        
-        # 如果指定了队列名称，也要加上链名称
-        if wallet_config.get('queue_name'):
-            base_queue = wallet_config['queue_name']
-            wallet_config['queue_name'] = f"{base_queue}_{self.chain_name}"
-        
-        logger.info(f"🔗 {self.chain_name} 链 RabbitMQ 配置:")
-        logger.info(f"   交换机: {wallet_config['exchange_name']}")
-        if wallet_config.get('queue_name'):
-            logger.info(f"   队列: {wallet_config['queue_name']}")
-        else:
-            logger.info(f"   队列: 自动生成")
+        # 其他组件
+        self.network_validator = NetworkValidator(self.rpc_manager, self.token_parser)
+        self.startup_logger = StartupLogger(self.config)
     
     async def start_monitoring(self) -> None:
         """开始监控"""
@@ -113,13 +98,15 @@ class EVMMonitor:
         
         try:
             # 检查网络连接
-            await self._check_network_connection()
+            await self.network_validator.check_network_connection()
             
-            # 初始化 RabbitMQ 管理器
-            await self._init_rabbitmq_manager()
+            # 初始化RabbitMQ管理器
+            rabbitmq_components = await self.rabbitmq_initializer.init_rabbitmq_manager(self.rabbitmq_config)
+            self.rabbitmq_consumer = rabbitmq_components['consumer']
+            self.wallet_handler = rabbitmq_components['handler']
             
             # 显示启动信息
-            self._log_startup_info()
+            self.startup_logger.log_startup_info()
             
             # 获取起始区块
             self.last_block = await self.rpc_manager.get_cached_block_number()
@@ -131,96 +118,6 @@ class EVMMonitor:
             logger.error(f"监控启动失败: {e}", exc_info=True)
             self.is_running = False
             raise
-    
-    async def _check_network_connection(self) -> None:
-        """检查网络连接"""
-        connection_info = await self.rpc_manager.test_connection()
-        
-        if connection_info['success']:
-            logger.info(
-                f"🌐 {connection_info['network']} 连接成功 - "
-                f"区块: {connection_info['latest_block']}, "
-                f"Gas: {connection_info['gas_price_gwei']:.2f} Gwei"
-            )
-            
-            # 显示支持的代币信息
-            self._log_supported_tokens()
-        else:
-            logger.error(f"网络连接失败: {connection_info['error']}")
-            raise ConnectionError(f"无法连接到RPC: {connection_info['error']}")
-    
-    def _log_supported_tokens(self) -> None:
-        """记录支持的代币信息"""
-        logger.info("🪙 支持的代币合约:")
-        for token, contract in self.token_parser.contracts.items():
-            if contract:
-                logger.info(f"   {token}: {contract}")
-    
-    async def _init_rabbitmq_manager(self) -> None:
-        """初始化 RabbitMQ 管理器"""
-        if self.rabbitmq_enabled:
-            try:
-                # 创建钱包更新处理器
-                self.wallet_handler = WalletUpdateHandler(self)
-                
-                # 获取钱包更新配置
-                wallet_config = self.rabbitmq_config.get('wallet_updates', {})
-                
-                # 创建消费者
-                self.rabbitmq_consumer = AsyncRabbitMQConsumer(
-                    host=self.rabbitmq_config.get('host', 'localhost'),
-                    port=self.rabbitmq_config.get('port', 5672),
-                    username=self.rabbitmq_config.get('username', 'guest'),
-                    password=self.rabbitmq_config.get('password', 'guest'),
-                    exchange_name=wallet_config.get('exchange_name', 'wallet_updates'),
-                    exchange_type=wallet_config.get('exchange_type', 'fanout'),
-                    queue_name=wallet_config.get('queue_name', ''),
-                    durable_queue=wallet_config.get('durable_queue', False),
-                    auto_delete_queue=wallet_config.get('auto_delete_queue', True),
-                    exclusive_queue=wallet_config.get('exclusive_queue', False),
-                    prefetch_count=wallet_config.get('prefetch_count', 1)
-                )
-                
-                # 连接并开始消费
-                if await self.rabbitmq_consumer.connect():
-                    self.rabbitmq_consumer.set_message_handler(self.wallet_handler.handle_wallet_update)
-                    await self.rabbitmq_consumer.start_consuming()
-                    logger.info("✅ RabbitMQ 消费者已启动")
-                else:
-                    logger.warning("⚠️ RabbitMQ 连接失败")
-                    
-            except Exception as e:
-                logger.error(f"❌ 初始化 RabbitMQ 消费者失败: {e}")
-                # RabbitMQ 失败不影响主程序运行
-        else:
-            logger.info("🔇 RabbitMQ 未启用")
-    
-    def _log_startup_info(self) -> None:
-        """记录启动信息"""
-        logger.info("🚀 开始监控 EVM 链交易")
-        
-        # 显示当前策略
-        strategy_desc = self.config.get_strategy_description()
-        logger.info(f"📋 监控策略: {strategy_desc}")
-        logger.info(f"🔗 RPC URL: {self.config.rpc_url}")
-        logger.info(f"⏱️ 区块时间: {self.config.block_time} 秒")
-        
-        if self.config.is_large_amount_strategy():
-            # 大额交易策略 - 显示阈值
-            thresholds = self.config.thresholds
-            threshold_info = " | ".join([
-                f"{token}≥{amount:,.0f}" for token, amount in thresholds.items()
-            ])
-            logger.info(f"📈 监控阈值: {threshold_info}")
-        elif self.config.is_watch_address_strategy():
-            # 地址监控策略 - 显示监控地址
-            logger.info(f"👁️ 监控地址数量: {len(self.config.watch_addresses)}")
-            for i, addr in enumerate(self.config.watch_addresses[:5], 1):  # 只显示前5个地址
-                logger.info(f"   {i}. {addr}")
-            if len(self.config.watch_addresses) > 5:
-                logger.info(f"   ... 还有 {len(self.config.watch_addresses) - 5} 个地址")
-        
-        logger.info(f"⚙️ 确认要求: {self.config.required_confirmations} 个区块")
     
     async def _monitoring_loop(self) -> None:
         """主监控循环"""
@@ -448,7 +345,25 @@ class EVMMonitor:
         self.tx_processor.reset_stats()
         self.confirmation_manager.reset_stats()
         self.stats_reporter.reset_stats()
+        
+        # 重置通知服务统计
+        if self.notification_service:
+            self.notification_service.reset_stats()
+        
         logger.info("🔄 所有统计数据已重置")
+    
+    async def test_notification_webhook(self) -> bool:
+        """
+        测试通知 Webhook 连接
+        
+        Returns:
+            bool: 测试是否成功
+        """
+        if not self.notification_initializer:
+            logger.warning("通知服务未初始化")
+            return False
+        
+        return await self.notification_initializer.test_webhook_connection_async()
     
     def log_final_report(self) -> None:
         """输出最终报告"""
@@ -463,13 +378,24 @@ class EVMMonitor:
         # 停止接收新的区块
         self.stop()
         
-        # 关闭 RabbitMQ 消费者
-        if self.rabbitmq_consumer:
+        # 关闭通知调度器
+        if self.notification_initializer:
             try:
-                await self.rabbitmq_consumer.disconnect()
-                logger.info("✅ RabbitMQ 消费者已关闭")
+                self.notification_initializer.cleanup()
+                logger.info("✅ 通知服务已关闭")
             except Exception as e:
-                logger.error(f"❌ 关闭 RabbitMQ 消费者失败: {e}")
+                logger.error(f"❌ 关闭通知服务失败: {e}")
+        
+        # 关闭 RabbitMQ 消费者
+        await self.rabbitmq_initializer.cleanup()
+        
+        # 关闭数据库连接
+        if self.database_initializer:
+            try:
+                self.database_initializer.cleanup()
+                logger.info("✅ 数据库连接已关闭")
+            except Exception as e:
+                logger.error(f"❌ 关闭数据库连接失败: {e}")
         
         # 等待当前处理完成
         await asyncio.sleep(1)
@@ -501,13 +427,37 @@ class EVMMonitor:
                 logger.error(f"获取 RabbitMQ 状态失败: {e}")
                 rabbitmq_healthy = False
         
+        # 数据库状态
+        database_healthy = True
+        database_stats = None
+        if self.database_initializer:
+            try:
+                database_healthy = self.database_initializer.is_connected()
+                database_stats = self.database_initializer.get_stats()
+            except Exception as e:
+                logger.error(f"获取数据库状态失败: {e}")
+                database_healthy = False
+        
+        # 通知服务状态
+        notification_healthy = True
+        notification_stats = None
+        if self.notification_initializer:
+            try:
+                notification_healthy = self.notification_initializer.is_healthy()
+                notification_stats = self.notification_initializer.get_notification_stats()
+            except Exception as e:
+                logger.error(f"获取通知服务状态失败: {e}")
+                notification_healthy = False
+        
         # 判断整体健康状态
         is_healthy = (
             self.is_running and 
             rpc_healthy and 
             pending_count < 100 and  # 待确认交易不超过100笔
             oldest_pending < 3600 and    # 最老的待确认交易不超过1小时
-            (not self.rabbitmq_enabled or rabbitmq_healthy)  # RabbitMQ 必须健康（如果启用）
+            (not self.rabbitmq_enabled or rabbitmq_healthy) and  # RabbitMQ 必须健康（如果启用）
+            database_healthy and  # 数据库必须健康（如果启用）
+            notification_healthy  # 通知服务必须健康（如果启用）
         )
         
         health_data = {
@@ -520,11 +470,21 @@ class EVMMonitor:
             'current_block': self.last_block,
             'uptime_hours': (time.time() - self.stats_reporter.start_time) / 3600,
             'rabbitmq_enabled': self.rabbitmq_enabled,
-            'rabbitmq_healthy': rabbitmq_healthy
+            'rabbitmq_healthy': rabbitmq_healthy,
+            'database_healthy': database_healthy,
+            'notification_enabled': self.notification_enabled,
+            'notification_healthy': notification_healthy,
+            'scheduler_started': self.scheduler_started
         }
         
         if rabbitmq_status:
             health_data['rabbitmq_status'] = rabbitmq_status
+        
+        if database_stats:
+            health_data['database_stats'] = database_stats
+            
+        if notification_stats:
+            health_data['notification_stats'] = notification_stats
             
         return health_data
 

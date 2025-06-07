@@ -61,7 +61,7 @@ class AsyncRabbitMQConsumer:
         self.channel: Optional[aio_pika.Channel] = None
         self.queue: Optional[aio_pika.Queue] = None
         self.exchange: Optional[aio_pika.Exchange] = None
-        self.consumer_tag: Optional[str] = None
+        self.consumer_tag: Optional[str] = None # Added to store the consumer tag
         
         # 消息处理回调函数（支持同步和异步）
         self.message_handler: Optional[Union[Callable[[Dict[str, Any]], None], Callable[[Dict[str, Any]], Awaitable[None]]]] = None
@@ -197,8 +197,8 @@ class AsyncRabbitMQConsumer:
         try:
             logger.info(f"🎧 开始监听队列: {self.queue.name}")
             
-            # 开始消费消息
-            await self.queue.consume(self._process_message)
+            # Start consuming messages and store the consumer_tag
+            self.consumer_tag = await self.queue.consume(self._process_message)
             self.is_consuming = True
             
             logger.info("✅ 消息消费已启动")
@@ -214,8 +214,9 @@ class AsyncRabbitMQConsumer:
             return
         
         try:
-            if self.queue:
-                await self.queue.cancel()
+            if self.queue and self.consumer_tag: # Ensure consumer_tag is present
+                await self.queue.cancel(self.consumer_tag)
+                self.consumer_tag = None # Clear the consumer tag after cancelling
             
             self.is_consuming = False
             logger.info("⏹️ 消息消费已停止")
@@ -362,3 +363,4 @@ if __name__ == "__main__":
     
     # 运行示例
     asyncio.run(example_usage())
+ 

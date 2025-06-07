@@ -310,6 +310,22 @@ class StatisticsReporter:
         logger.info(f"   超时清理: {conf_stats['timeout_transactions']} 笔")
         logger.info(f"   剩余待确认: {conf_stats['pending_count']} 笔")
     
+    def _log_final_processing_time_stats(self) -> None:
+        """记录最终处理时间统计"""
+        stats = self.get_processing_time_stats()
+        
+        if stats['count'] > 0:
+            logger.info(f"⏱️ 处理时间统计:")
+            logger.info(f"   处理批次: {stats['count']} 次")
+            logger.info(f"   总耗时: {stats['total_time']:.2f} 秒")
+            logger.info(f"   平均耗时: {stats['avg_time']:.3f} 秒/批")
+            logger.info(f"   最快处理: {stats['min_time']:.3f} 秒")
+            logger.info(f"   最慢处理: {stats['max_time']:.3f} 秒")
+            if stats['recent_avg'] > 0:
+                logger.info(f"   近期平均: {stats['recent_avg']:.3f} 秒/批")
+        else:
+            logger.info("⏱️ 无处理时间数据")
+    
     def get_monitor_status(self, current_block: int, is_running: bool) -> MonitorStatus:
         """获取当前监控状态"""
         current_time = time.time()

@@ -53,6 +53,11 @@ _RabbitMQConfigData = _loaded_config.get('rabbitmq', {}) if _loaded_config else 
 # 钱包地址加载配置
 AddressLoadConfig = _loaded_config.get('address_loader') if _loaded_config else {}
 
+# 数据库配置
+DatabaseConfig = _loaded_config.get('database') if _loaded_config else {}
+
+# 通知服务配置
+NotifyConfig = _loaded_config.get('notification') if _loaded_config else {}
 
 def get_rabbitmq_config() -> Dict[str, Any]:
     """
