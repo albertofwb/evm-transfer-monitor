@@ -144,6 +144,40 @@ monitor:
   # 高风险交易的额外确认数
   high_value_extra_confirmations: 5
 
+# RabbitMQ 配置
+rabbitmq:
+  # 连接配置
+  host: "localhost"
+  port: 5672
+  username: "guest"
+  password: "guest"
+  
+  # 虚拟主机
+  virtual_host: "/"
+  
+  # 连接选项
+  heartbeat: 600
+  connection_timeout: 30
+  
+  # 钱包地址更新队列配置
+  wallet_updates:
+    exchange_name: "wallet_updates"
+    exchange_type: "fanout"
+    queue_name: ""  # 空字符串表示自动生成队列名
+    durable_queue: false
+    auto_delete_queue: true
+    exclusive_queue: true
+    prefetch_count: 1
+  
+  # 是否启用 RabbitMQ 钱包地址更新监听
+  enabled: true
+  
+  # 重连配置
+  reconnect:
+    max_retries: 5
+    retry_delay: 5
+    backoff_multiplier: 2
+
 # 日志配置
 logging:
   level: "INFO"

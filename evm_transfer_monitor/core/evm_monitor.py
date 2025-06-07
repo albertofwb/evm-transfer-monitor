@@ -13,9 +13,11 @@ from typing import Optional, Dict, Any
 from web3.exceptions import BlockNotFound
 
 from config.monitor_config import MonitorConfig, MonitorStrategy
+from config.base_config import get_rabbitmq_config
 from managers.rpc_manager import RPCManager
 from processors.transaction_processor import TransactionProcessor
 from managers.confirmation_manager import ConfirmationManager
+from managers.queue_manager import create_rabbitmq_manager, AsyncRabbitMQManager
 from reports.statistics_reporter import StatisticsReporter
 from models.data_types import MonitorStatus
 from utils.token_parser import TokenParser
@@ -27,17 +29,78 @@ logger = get_logger(__name__)
 class EVMMonitor:
     """主监控器类 - 协调各个组件"""
     
-    def __init__(self, config: MonitorConfig, token_parser: TokenParser):
+    def __init__(
+        self, 
+        config: MonitorConfig, 
+        token_parser: TokenParser, 
+        chain_name: Optional[str] = None,
+        rabbitmq_config: Optional[Dict[str, Any]] = None
+    ):
+        """
+        初始化监控器
+        
+        Args:
+            config: 监控配置
+            token_parser: 代币解析器
+            chain_name: 链名称（用于区分不同的实例）
+            rabbitmq_config: RabbitMQ 配置（如果不提供则使用默认配置）
+        """
         self.config = config    
         self.token_parser = token_parser
+        self.chain_name = chain_name or getattr(config, 'chain_name', 'unknown')
         self.is_running = False
         self.last_block = 0
         
         # 初始化各个组件
         self.rpc_manager = RPCManager(self.config)
-        self.tx_processor = TransactionProcessor(self.config, self.token_parser,self.rpc_manager)
+        self.tx_processor = TransactionProcessor(self.config, self.token_parser, self.rpc_manager)
         self.confirmation_manager = ConfirmationManager(self.config, self.rpc_manager, self.token_parser)
         self.stats_reporter = StatisticsReporter(self.config)
+        
+        # RabbitMQ 相关组件（每个实例独立配置）
+        self.rabbitmq_manager: Optional[AsyncRabbitMQManager] = None
+        self.rabbitmq_config = self._init_rabbitmq_config(rabbitmq_config)
+        self.rabbitmq_enabled = self.rabbitmq_config.get('enabled', False)
+        
+        # 给每个实例创建独特的队列名称
+        if self.rabbitmq_enabled:
+            self._customize_rabbitmq_config()
+    
+    def _init_rabbitmq_config(self, custom_config: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        """初始化 RabbitMQ 配置
+        
+        Args:
+            custom_config: 自定义配置
+            
+        Returns:
+            最终的 RabbitMQ 配置
+        """
+        if custom_config:
+            # 使用自定义配置
+            return custom_config.copy()
+        else:
+            # 使用默认配置
+            return get_rabbitmq_config()
+    
+    def _customize_rabbitmq_config(self) -> None:
+        """为当前实例定制 RabbitMQ 配置"""
+        wallet_config = self.rabbitmq_config.get('wallet_updates', {})
+        
+        # 为每个链创建独特的交换机名称
+        base_exchange = wallet_config.get('exchange_name', 'wallet_updates')
+        wallet_config['exchange_name'] = f"{base_exchange}_{self.chain_name}"
+        
+        # 如果指定了队列名称，也要加上链名称
+        if wallet_config.get('queue_name'):
+            base_queue = wallet_config['queue_name']
+            wallet_config['queue_name'] = f"{base_queue}_{self.chain_name}"
+        
+        logger.info(f"🔗 {self.chain_name} 链 RabbitMQ 配置:")
+        logger.info(f"   交换机: {wallet_config['exchange_name']}")
+        if wallet_config.get('queue_name'):
+            logger.info(f"   队列: {wallet_config['queue_name']}")
+        else:
+            logger.info(f"   队列: 自动生成")
     
     async def start_monitoring(self) -> None:
         """开始监控"""
@@ -50,6 +113,9 @@ class EVMMonitor:
         try:
             # 检查网络连接
             await self._check_network_connection()
+            
+            # 初始化 RabbitMQ 管理器
+            await self._init_rabbitmq_manager()
             
             # 显示启动信息
             self._log_startup_info()
@@ -88,6 +154,26 @@ class EVMMonitor:
         for token, contract in self.token_parser.contracts.items():
             if contract:
                 logger.info(f"   {token}: {contract}")
+    
+    async def _init_rabbitmq_manager(self) -> None:
+        """初始化 RabbitMQ 管理器"""
+        if self.rabbitmq_enabled:
+            try:
+                self.rabbitmq_manager = await create_rabbitmq_manager(
+                    self.rabbitmq_config, self
+                )
+                
+                if self.rabbitmq_manager:
+                    await self.rabbitmq_manager.start()
+                    logger.info("✅ RabbitMQ 管理器已启动")
+                else:
+                    logger.warning("⚠️ RabbitMQ 管理器创建失败")
+                    
+            except Exception as e:
+                logger.error(f"❌ 初始化 RabbitMQ 管理器失败: {e}")
+                # RabbitMQ 失败不影响主程序运行
+        else:
+            logger.info("🔇 RabbitMQ 未启用")
     
     def _log_startup_info(self) -> None:
         """记录启动信息"""
@@ -357,6 +443,14 @@ class EVMMonitor:
         # 停止接收新的区块
         self.stop()
         
+        # 关闭 RabbitMQ 管理器
+        if self.rabbitmq_manager:
+            try:
+                await self.rabbitmq_manager.stop()
+                logger.info("✅ RabbitMQ 管理器已关闭")
+            except Exception as e:
+                logger.error(f"❌ 关闭 RabbitMQ 管理器失败: {e}")
+        
         # 等待当前处理完成
         await asyncio.sleep(1)
         
@@ -370,21 +464,33 @@ class EVMMonitor:
         
         logger.info("监控器已优雅关闭")
     
-    def get_health_status(self) -> Dict[str, Any]:
+    async def get_health_status(self) -> Dict[str, Any]:
         """获取健康状态"""
         rpc_healthy = self.rpc_manager.is_healthy()
         pending_count = self.confirmation_manager.get_pending_count()
         oldest_pending = self.confirmation_manager.get_oldest_pending_age()
+        
+        # RabbitMQ 状态
+        rabbitmq_status = None
+        rabbitmq_healthy = True
+        if self.rabbitmq_enabled and self.rabbitmq_manager:
+            try:
+                rabbitmq_status = await self.rabbitmq_manager.get_status()
+                rabbitmq_healthy = rabbitmq_status.get('running', False)
+            except Exception as e:
+                logger.error(f"获取 RabbitMQ 状态失败: {e}")
+                rabbitmq_healthy = False
         
         # 判断整体健康状态
         is_healthy = (
             self.is_running and 
             rpc_healthy and 
             pending_count < 100 and  # 待确认交易不超过100笔
-            oldest_pending < 3600    # 最老的待确认交易不超过1小时
+            oldest_pending < 3600 and    # 最老的待确认交易不超过1小时
+            (not self.rabbitmq_enabled or rabbitmq_healthy)  # RabbitMQ 必须健康（如果启用）
         )
         
-        return {
+        health_data = {
             'overall_healthy': is_healthy,
             'is_running': self.is_running,
             'rpc_healthy': rpc_healthy,
@@ -392,8 +498,15 @@ class EVMMonitor:
             'oldest_pending_age': oldest_pending,
             'blocks_processed': self.stats_reporter.blocks_processed,
             'current_block': self.last_block,
-            'uptime_hours': (time.time() - self.stats_reporter.start_time) / 3600
+            'uptime_hours': (time.time() - self.stats_reporter.start_time) / 3600,
+            'rabbitmq_enabled': self.rabbitmq_enabled,
+            'rabbitmq_healthy': rabbitmq_healthy
         }
+        
+        if rabbitmq_status:
+            health_data['rabbitmq_status'] = rabbitmq_status
+            
+        return health_data
 
 
 def setup_signal_handlers(monitor: EVMMonitor) -> None:
@@ -412,13 +525,20 @@ def setup_signal_handlers(monitor: EVMMonitor) -> None:
         logger.warning(f"注册信号处理器失败: {e}")
 
 
-async def main(chain_name: str) -> None:
-    """主函数"""
+async def main(chain_name: str = 'bsc') -> None:
+    """主函数
+    
+    Args:
+        chain_name: 链名称，用于区分不同的监控实例
+    """
     # 创建配置
     config = MonitorConfig.from_chain_name(chain_name)
+    
+    # 创建代币解析器
+    token_parser = TokenParser(config)
 
-    # 创建监控器
-    monitor = EVMMonitor(config)
+    # 创建监控器（传入链名称）
+    monitor = EVMMonitor(config, token_parser, chain_name=chain_name)
     
     # 设置信号处理器
     setup_signal_handlers(monitor)
@@ -435,4 +555,13 @@ async def main(chain_name: str) -> None:
 
 
 if __name__ == '__main__':
-    asyncio.run(main())
+    import sys
+    
+    # 支持命令行参数指定链名称
+    if len(sys.argv) > 1:
+        chain_name = sys.argv[1]
+    else:
+        chain_name = 'bsc'  # 默认使用 BSC 链
+    
+    logger.info(f"🚀 启动 {chain_name.upper()} 链监控器")
+    asyncio.run(main(chain_name))
