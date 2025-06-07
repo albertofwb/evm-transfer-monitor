@@ -110,7 +110,7 @@ class AsyncRabbitMQConsumer:
             return True
             
         except Exception as e:
-            logger.error(f"❌ 连接到 RabbitMQ 失败: {e}")
+            logger.error(f"❌ 连接到 RabbitMQ 失败: {self.host}:{self.port}")
             self.is_connected = False
             return False
 
@@ -169,10 +169,12 @@ class AsyncRabbitMQConsumer:
         if not isinstance(address, str) or not address:
             return False
         
-        # 简单的以太坊地址格式验证
-        if not (address.startswith('0x') and len(address) == 42):
-            logger.warning(f"⚠️ 地址格式可能无效: {address}")
-        
+        if 'address_type' in message_data:
+            address_type = message_data['address_type']
+            if address_type != "evm":
+                logger.warning(f"⚠️ 不支持的地址类型: {address_type}")
+                return False
+         
         return True
 
     async def _safe_call_handler(self, message_data: Dict[str, Any]) -> None:
@@ -329,13 +331,13 @@ async def example_usage():
     
     # 配置消费者
     consumer_config = {
-        'host': 'localhost',
+        'host': 'rabbitmq',
         'port': 5672,
         'username': 'guest',
         'password': 'guest',
         'exchange_name': 'wallet_updates',
         'exchange_type': 'fanout',
-        'exclusive_queue': True,
+        'exclusive_queue': False,
         'prefetch_count': 1
     }
     
@@ -355,7 +357,7 @@ if __name__ == "__main__":
     # 配置日志
     logging.basicConfig(
         level=logging.INFO,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+        format="%(asctime)s %(levelname)s %(filename)s:%(lineno)s %(message)s"
     )
     
     # 运行示例

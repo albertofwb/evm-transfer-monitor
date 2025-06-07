@@ -17,7 +17,7 @@ from config.base_config import get_rabbitmq_config
 from managers.rpc_manager import RPCManager
 from processors.transaction_processor import TransactionProcessor
 from managers.confirmation_manager import ConfirmationManager
-from managers.queue_manager import create_rabbitmq_manager, AsyncRabbitMQManager
+from managers.queue_manager import AsyncRabbitMQConsumer, WalletUpdateHandler
 from reports.statistics_reporter import StatisticsReporter
 from models.data_types import MonitorStatus
 from utils.token_parser import TokenParser
@@ -58,13 +58,14 @@ class EVMMonitor:
         self.stats_reporter = StatisticsReporter(self.config)
         
         # RabbitMQ 相关组件（每个实例独立配置）
-        self.rabbitmq_manager: Optional[AsyncRabbitMQManager] = None
+        self.rabbitmq_consumer: Optional[AsyncRabbitMQConsumer] = None
+        self.wallet_handler: Optional[WalletUpdateHandler] = None
         self.rabbitmq_config = self._init_rabbitmq_config(rabbitmq_config)
         self.rabbitmq_enabled = self.rabbitmq_config.get('enabled', False)
         
         # 给每个实例创建独特的队列名称
-        if self.rabbitmq_enabled:
-            self._customize_rabbitmq_config()
+        # if self.rabbitmq_enabled:
+            # self._customize_rabbitmq_config()
     
     def _init_rabbitmq_config(self, custom_config: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         """初始化 RabbitMQ 配置
@@ -159,18 +160,37 @@ class EVMMonitor:
         """初始化 RabbitMQ 管理器"""
         if self.rabbitmq_enabled:
             try:
-                self.rabbitmq_manager = await create_rabbitmq_manager(
-                    self.rabbitmq_config, self
+                # 创建钱包更新处理器
+                self.wallet_handler = WalletUpdateHandler(self)
+                
+                # 获取钱包更新配置
+                wallet_config = self.rabbitmq_config.get('wallet_updates', {})
+                
+                # 创建消费者
+                self.rabbitmq_consumer = AsyncRabbitMQConsumer(
+                    host=self.rabbitmq_config.get('host', 'localhost'),
+                    port=self.rabbitmq_config.get('port', 5672),
+                    username=self.rabbitmq_config.get('username', 'guest'),
+                    password=self.rabbitmq_config.get('password', 'guest'),
+                    exchange_name=wallet_config.get('exchange_name', 'wallet_updates'),
+                    exchange_type=wallet_config.get('exchange_type', 'fanout'),
+                    queue_name=wallet_config.get('queue_name', ''),
+                    durable_queue=wallet_config.get('durable_queue', False),
+                    auto_delete_queue=wallet_config.get('auto_delete_queue', True),
+                    exclusive_queue=wallet_config.get('exclusive_queue', False),
+                    prefetch_count=wallet_config.get('prefetch_count', 1)
                 )
                 
-                if self.rabbitmq_manager:
-                    await self.rabbitmq_manager.start()
-                    logger.info("✅ RabbitMQ 管理器已启动")
+                # 连接并开始消费
+                if await self.rabbitmq_consumer.connect():
+                    self.rabbitmq_consumer.set_message_handler(self.wallet_handler.handle_wallet_update)
+                    await self.rabbitmq_consumer.start_consuming()
+                    logger.info("✅ RabbitMQ 消费者已启动")
                 else:
-                    logger.warning("⚠️ RabbitMQ 管理器创建失败")
+                    logger.warning("⚠️ RabbitMQ 连接失败")
                     
             except Exception as e:
-                logger.error(f"❌ 初始化 RabbitMQ 管理器失败: {e}")
+                logger.error(f"❌ 初始化 RabbitMQ 消费者失败: {e}")
                 # RabbitMQ 失败不影响主程序运行
         else:
             logger.info("🔇 RabbitMQ 未启用")
@@ -443,13 +463,13 @@ class EVMMonitor:
         # 停止接收新的区块
         self.stop()
         
-        # 关闭 RabbitMQ 管理器
-        if self.rabbitmq_manager:
+        # 关闭 RabbitMQ 消费者
+        if self.rabbitmq_consumer:
             try:
-                await self.rabbitmq_manager.stop()
-                logger.info("✅ RabbitMQ 管理器已关闭")
+                await self.rabbitmq_consumer.disconnect()
+                logger.info("✅ RabbitMQ 消费者已关闭")
             except Exception as e:
-                logger.error(f"❌ 关闭 RabbitMQ 管理器失败: {e}")
+                logger.error(f"❌ 关闭 RabbitMQ 消费者失败: {e}")
         
         # 等待当前处理完成
         await asyncio.sleep(1)
@@ -473,10 +493,10 @@ class EVMMonitor:
         # RabbitMQ 状态
         rabbitmq_status = None
         rabbitmq_healthy = True
-        if self.rabbitmq_enabled and self.rabbitmq_manager:
+        if self.rabbitmq_enabled and self.rabbitmq_consumer:
             try:
-                rabbitmq_status = await self.rabbitmq_manager.get_status()
-                rabbitmq_healthy = rabbitmq_status.get('running', False)
+                rabbitmq_status = self.rabbitmq_consumer.get_status()
+                rabbitmq_healthy = rabbitmq_status.get('connected', False) and rabbitmq_status.get('consuming', False)
             except Exception as e:
                 logger.error(f"获取 RabbitMQ 状态失败: {e}")
                 rabbitmq_healthy = False

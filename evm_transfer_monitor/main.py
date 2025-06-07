@@ -26,7 +26,7 @@ async def main(chain_name: str) -> int:
         config = MonitorConfig.from_chain_name(chain_name)
         token_parser = TokenParser(chain_name)
         # 创建监控器
-        monitor = EVMMonitor(config, token_parser)
+        monitor = EVMMonitor(config, token_parser, chain_name=chain_name)
 
         # 设置信号处理器
         setup_signal_handlers(monitor)

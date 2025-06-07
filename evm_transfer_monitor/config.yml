@@ -42,7 +42,7 @@ chains:
         decimals: 18
   
   # Ethereum 主网
-  ethereum:
+  eth:
     rpc_url: "https://ethereum.publicnode.com"
     scan_url: "https://etherscan.io"
     token_name: "ETH"
@@ -147,7 +147,7 @@ monitor:
 # RabbitMQ 配置
 rabbitmq:
   # 连接配置
-  host: "localhost"
+  host: "rabbitmq"
   port: 5672
   username: "guest"
   password: "guest"
@@ -166,7 +166,7 @@ rabbitmq:
     queue_name: ""  # 空字符串表示自动生成队列名
     durable_queue: false
     auto_delete_queue: true
-    exclusive_queue: true
+    exclusive_queue: false
     prefetch_count: 1
   
   # 是否启用 RabbitMQ 钱包地址更新监听
