@@ -125,7 +125,6 @@ class TransactionProcessor:
         
         if self.config.is_large_amount_strategy():
             to_address = token_info.get('to').lower()
-            from_address = token_info.get('from').lower()
             # 大额交易策略：检查金额阈值
             threshold = self.config.get_threshold(token_symbol)
             should_process = token_info['amount'] >= threshold and to_address
@@ -133,13 +132,7 @@ class TransactionProcessor:
             # 地址监控策略：检查接收地址
             to_address = token_info.get('to').lower()
             from_address = token_info.get('from').lower()
-            if to_address == from_address:
-                logger.warning(
-                    f"⚠️ 代币转账检测到发送地址和接收地址相同: {tx['from']} => {tx['to']} | "
-                    f"忽略本次交易"
-                )
-            else:
-                should_process = to_address and self.config.is_watched_address(to_address)
+            should_process = to_address and self.config.is_watched_address(to_address) and to_address != from_address
 
         if should_process:
             tx_hash = self.rpc_manager.w3.to_hex(tx['hash'])

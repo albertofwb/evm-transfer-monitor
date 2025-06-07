@@ -65,7 +65,7 @@ chains:
   polygon:
     rpc_url: "https://polygon-rpc.com"
     scan_url: "https://polygonscan.com"
-    token_name: "MATIC"
+    token_name: "POL"
     chain_id: 137
     # 区块确认配置 - Polygon需要较多确认数防止重组
     confirmation_blocks: 50  # Polygon推荐确认数
@@ -77,6 +77,10 @@ chains:
       - symbol: "WMATIC"
         contract: "0x0d500b1d8e8ef31e21c99d1db9a6444d3adf1270"
         decimals: 18
+      - symbol: "DAI"
+        contract: "0x8f3Cf7ad23Cd3CaDbD9735AFf958023239c6A063"
+        decimals: 18
+        
   
   # Arbitrum One
   arbitrum:

@@ -1,5 +1,24 @@
 # EVM监控器 - 重构版本
 
+### 运行截图
+
+#### 监听 polygon
+
+![](./screenshots/polygon-init.png)
+
+
+#### 监听 DAI 转账
+
+![](./screenshots/dai-transfer.png)
+
+
+#### 监听 bsc
+
+![](./screenshots/bsc-monitor.png)
+
+#### 性能统计
+
+![](./screenshots/performance-statistics.png)
 
 ## 🏗️ 架构设计
 

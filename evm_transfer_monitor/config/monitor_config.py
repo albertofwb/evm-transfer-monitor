@@ -54,8 +54,8 @@ class MonitorConfig:
     _watch_addresses_set: set = field(default_factory=set, init=False)
     
     # API限制配置
-    max_rpc_per_second: int = 4
-    max_rpc_per_day: int = 90000
+    max_rpc_per_second: int = 5
+    max_rpc_per_day: int = 100_000
     
     # 日志配置
     stats_log_interval: int = 300  # 性能统计日志间隔（秒）
