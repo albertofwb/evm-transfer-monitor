@@ -148,7 +148,7 @@ async def health_check(chain_name: str) -> None:
     try:
         # 创建配置和监控器
         config = MonitorConfig.from_chain_name(chain_name)
-        token_parser = TokenParser(config)
+        token_parser = TokenParser(chain_name)
         monitor = EVMMonitor(config, token_parser, chain_name=chain_name)
         
         # 执行健康检查
@@ -170,7 +170,7 @@ async def health_check(chain_name: str) -> None:
             sys.exit(1)
             
     except Exception as e:
-        logger.error(f"❌ 健康检查失败: {e}")
+        logger.error(f"❌ 健康检查失败: {e}", exc_info=True)
         sys.exit(1)
 
 
@@ -181,7 +181,7 @@ async def test_webhook(chain_name: str) -> None:
     try:
         # 创建配置和监控器
         config = MonitorConfig.from_chain_name(chain_name)
-        token_parser = TokenParser(config)
+        token_parser = TokenParser(chain_name)
         monitor = EVMMonitor(config, token_parser, chain_name=chain_name)
         
         # 等待初始化完成
@@ -202,7 +202,7 @@ async def test_webhook(chain_name: str) -> None:
         await monitor.graceful_shutdown()
         
     except Exception as e:
-        logger.error(f"❌ Webhook 测试失败: {e}")
+        logger.error(f"❌ Webhook 测试失败: {e}", exc_info=True)
         sys.exit(1)
 
 
